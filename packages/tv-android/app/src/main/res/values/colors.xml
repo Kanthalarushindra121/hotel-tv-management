@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_tv_black">#05050A</color>
+    <color name="bg_card_dark">#0F0F1E</color>
+    <color name="bg_card_surface">#18182E</color>
+    <color name="primary_indigo">#6366F1</color>
+    <color name="primary_indigo_light">#818CF8</color>
+    <color name="emerald_accent">#10B981</color>
+    <color name="amber_warning">#F59E0B</color>
+    <color name="rose_danger">#EF4444</color>
+    <color name="text_white">#FFFFFF</color>
+    <color name="text_muted">#94A3B8</color>
+    <color name="border_subtle">#27273F</color>
+    <color name="focused_border">#A5B4FC</color>
+</resources>
+

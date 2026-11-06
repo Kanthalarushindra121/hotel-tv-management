@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SmartStay TV</string>
+    <string name="welcome_default">Welcome to SmartStay</string>
+    <string name="connect_wifi">Connect to High-Speed Wi-Fi</string>
+    <string name="scan_qr_hint">Scan QR code with your smartphone camera</string>
+    <string name="checkout_today">DEPARTURE TODAY</string>
+    <string name="open_entertainment">Open TV &amp; Entertainment</string>
+    <string name="pairing_title">Connect This Display</string>
+    <string name="pairing_hint">Enter this 6-digit code in your SmartStay Web Dashboard under Devices</string>
+</resources>
+

@@ -1,0 +1,854 @@
+// SmartStay TV — Complete Prisma Schema
+// PostgreSQL + Multi-tenant SaaS
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════════════════════════
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  ADMIN
+  MANAGER
+  RECEPTIONIST
+  STAFF
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PROFESSIONAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+  OUT_OF_ORDER
+}
+
+enum CheckoutPolicyMode {
+  FIXED_TIME
+  HOURLY
+  CUSTOM
+}
+
+enum DeviceStatus {
+  UNPAIRED
+  PAIRING
+  PAIRED
+  ONLINE
+  OFFLINE
+  UPDATE_AVAILABLE
+  ERROR
+}
+
+enum TvScreenState {
+  UNPAIRED
+  PAIRING
+  SYNCING
+  DEFAULT_MODE
+  GUEST_ACTIVE
+  CHECKOUT_DAY
+  SCREENSAVER
+  OFFLINE
+  ERROR
+}
+
+enum BookingSource {
+  MANUAL
+  PMS
+  API
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum PmsStatus {
+  CONNECTED
+  SYNCING
+  ERROR
+  DISCONNECTED
+}
+
+enum NotificationType {
+  TV_OFFLINE
+  TV_ONLINE
+  TV_PAIRED
+  GUEST_CHECKED_IN
+  GUEST_CHECKED_OUT
+  PMS_SYNC_FAILED
+  PMS_CONNECTED
+  SUBSCRIPTION_ISSUE
+  SYSTEM
+  CHECKOUT_REMINDER
+  CHECKOUT_OVERDUE
+}
+
+enum AuditAction {
+  USER_LOGIN
+  USER_LOGOUT
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  HOTEL_CREATED
+  HOTEL_UPDATED
+  ROOM_CREATED
+  ROOM_UPDATED
+  ROOM_DELETED
+  DEVICE_PAIRED
+  DEVICE_UNPAIRED
+  DEVICE_MOVED
+  GUEST_CREATED
+  GUEST_UPDATED
+  BOOKING_CREATED
+  BOOKING_UPDATED
+  BOOKING_CANCELLED
+  GUEST_CHECKED_IN
+  GUEST_CHECKED_OUT
+  WIFI_UPDATED
+  SETTINGS_UPDATED
+  PMS_CONNECTED
+  PMS_DISCONNECTED
+  STAFF_PERMISSION_CHANGED
+  SUBSCRIPTION_CHANGED
+  WIFI_ZONE_CREATED
+  WIFI_ZONE_UPDATED
+  CHECKOUT_POLICY_SET
+  CHECKOUT_REMINDER_SENT
+  STAY_EXTENDED
+}
+
+enum SecurityType {
+  WPA
+  WPA2
+  WPA3
+  WEP
+  OPEN
+}
+
+enum StorageType {
+  LOCAL
+  S3
+}
+
+// ═══════════════════════════════════════════════════════════
+// USERS & AUTH
+// ═══════════════════════════════════════════════════════════
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  username      String?  @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatarUrl     String?
+  role          UserRole @default(RECEPTIONIST)
+  isActive      Boolean  @default(true)
+  isSuperAdmin  Boolean  @default(false)
+  
+  // Relations
+  hotelId       String?
+  hotel         Hotel?           @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  refreshTokens RefreshToken[]
+  sessions      Session[]
+  auditLogs     AuditLog[]       @relation("AuditUser")
+  notifications Notification[]
+  
+  // Timestamps
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  @@index([hotelId])
+  @@index([email])
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  token       String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  deviceInfo  String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token       String   @unique
+  deviceInfo  String?
+  ipAddress   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ═══════════════════════════════════════════════════════════
+// HOTELS (TENANT ROOT)
+// ═══════════════════════════════════════════════════════════
+
+model Hotel {
+  id              String  @id @default(uuid())
+  name            String
+  slug            String  @unique
+  description     String?
+  
+  // Address
+  address         String?
+  city            String?
+  state           String?
+  country         String  @default("India")
+  postalCode      String?
+  
+  // Contact
+  phone           String?
+  email           String?
+  website         String?
+  
+  // Media
+  logoUrl         String?
+  coverImageUrl   String?
+  
+  // Branding
+  primaryColor    String  @default("#1a1a2e")
+  accentColor     String  @default("#e94560")
+  
+  // Status
+  isActive        Boolean @default(true)
+  isOnboarded     Boolean @default(false)
+  onboardingStep  Int     @default(1)
+  
+  // Relations
+  users           User[]
+  rooms           Room[]
+  devices         TvDevice[]
+  guests          Guest[]
+  bookings        Booking[]
+  settings        HotelSettings?
+  wifiSettings    WifiSettings?
+  amenities       HotelAmenity[]
+  houseRules      HouseRule[]
+  checkoutSteps   CheckoutStep[]
+  photos          HotelPhoto[]
+  announcements   Announcement[]
+  pmsIntegrations PmsIntegration[]
+  subscription    Subscription?
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  wifiZones       WifiZone[]
+  checkoutPolicies CheckoutPolicy[]
+  checkoutReminders CheckoutReminder[]
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@index([slug])
+  @@map("hotels")
+}
+
+model HotelSettings {
+  id               String  @id @default(uuid())
+  hotelId          String  @unique
+  hotel            Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  
+  // Time configuration
+  checkInTime      String  @default("14:00")  // HH:MM
+  checkOutTime     String  @default("11:00")  // HH:MM
+  quietHoursStart  String  @default("22:00")
+  quietHoursEnd    String  @default("07:00")
+  timezone         String  @default("Asia/Kolkata")
+  
+  // Locale
+  defaultLanguage  String  @default("en")
+  currency         String  @default("INR")
+  
+  // TV Settings
+  screensaverDelay Int     @default(300)  // seconds
+  guestDataExpiry  Int     @default(24)   // hours after checkout
+  
+  // Welcome messages
+  welcomeMessage      String  @default("Welcome")
+  defaultWelcomeMsg   String  @default("Welcome to our hotel")
+  checkoutMessage     String  @default("Thank you for staying with us")
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("hotel_settings")
+}
+
+model WifiSettings {
+  id           String       @id @default(uuid())
+  hotelId      String       @unique
+  hotel        Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  networkName  String
+  password     String       // stored as-is; never shown fully on TV
+  securityType SecurityType @default(WPA2)
+  isHidden     Boolean      @default(false)
+  qrCodeUrl    String?      // cached QR code image
+  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("wifi_settings")
+}
+
+// ═══════════════════════════════════════════════════════════
+// AMENITIES
+// ═══════════════════════════════════════════════════════════
+
+model Amenity {
+  id      String         @id @default(uuid())
+  name    String
+  icon    String?
+  hotels  HotelAmenity[]
+
+  @@map("amenities")
+}
+
+model HotelAmenity {
+  id        String   @id @default(uuid())
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  amenityId String?
+  amenity   Amenity? @relation(fields: [amenityId], references: [id])
+  customName String?  // for custom amenities
+  customIcon String?
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+
+  @@index([hotelId])
+  @@map("hotel_amenities")
+}
+
+model HouseRule {
+  id        String  @id @default(uuid())
+  hotelId   String
+  hotel     Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  rule      String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("house_rules")
+}
+
+model CheckoutStep {
+  id          String  @id @default(uuid())
+  hotelId     String
+  hotel       Hotel   @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  instruction String
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("checkout_steps")
+}
+
+model HotelPhoto {
+  id          String   @id @default(uuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  url         String
+  thumbnailUrl String?
+  caption     String?
+  isCover     Boolean  @default(false)
+  isWelcome   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  fileSize    Int?
+  mimeType    String?
+  createdAt   DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("hotel_photos")
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  isActive  Boolean  @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hotelId])
+  @@map("announcements")
+}
+
+// ═══════════════════════════════════════════════════════════
+// ROOMS
+// ═══════════════════════════════════════════════════════════
+
+model RoomType {
+  id          String @id @default(uuid())
+  hotelId     String
+  name        String // "Standard", "Deluxe", "Suite"
+  description String?
+  maxOccupancy Int   @default(2)
+  rooms       Room[]
+  createdAt   DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("room_types")
+}
+
+model Room {
+  id          String     @id @default(uuid())
+  hotelId     String
+  hotel       Hotel      @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomNumber  String
+  floor       Int?
+  roomTypeId  String?
+  roomType    RoomType?  @relation(fields: [roomTypeId], references: [id])
+  status      RoomStatus @default(AVAILABLE)
+  maxOccupancy Int       @default(2)
+  notes       String?
+  
+  // Relations
+  device      TvDevice?
+  bookings    Booking[]
+  currentBooking Booking? @relation("CurrentRoomBooking", fields: [currentBookingId], references: [id])
+  currentBookingId String? @unique
+  wifiZoneId  String?
+  wifiZone    WifiZone?       @relation("RoomWifiZone", fields: [wifiZoneId], references: [id], onDelete: SetNull)
+  checkoutPolicy CheckoutPolicy?
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([hotelId, roomNumber])
+  @@index([hotelId])
+  @@map("rooms")
+}
+
+// ═══════════════════════════════════════════════════════════
+// TV DEVICES
+// ═══════════════════════════════════════════════════════════
+
+model TvDevice {
+  id            String       @id @default(uuid())
+  hotelId       String
+  hotel         Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomId        String?      @unique
+  room          Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  
+  // Identity
+  deviceId      String       @unique // hardware device fingerprint
+  name          String?
+  
+  // Auth
+  deviceToken   String?      // hashed device JWT token
+  
+  // Status
+  status        DeviceStatus @default(UNPAIRED)
+  screenState   TvScreenState @default(UNPAIRED)
+  isOnline      Boolean      @default(false)
+  lastSeenAt    DateTime?
+  
+  // Device info (reported by TV app)
+  appVersion    String?
+  osVersion     String?
+  deviceModel   String?
+  deviceBrand   String?
+  screenWidth   Int?
+  screenHeight  Int?
+  ipAddress     String?
+  
+  // Pairing
+  pairingCode   String?
+  pairingExpiry DateTime?
+  pairedAt      DateTime?
+  
+  // Relations
+  heartbeats    DeviceHeartbeat[]
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  @@index([hotelId])
+  @@index([deviceId])
+  @@index([pairingCode])
+  @@map("tv_devices")
+}
+
+model DeviceHeartbeat {
+  id         String   @id @default(uuid())
+  deviceId   String
+  device     TvDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  timestamp  DateTime @default(now())
+  appVersion String?
+  screenState TvScreenState?
+  ipAddress  String?
+  isOnline   Boolean  @default(true)
+
+  @@index([deviceId])
+  @@index([timestamp])
+  @@map("device_heartbeats")
+}
+
+// ═══════════════════════════════════════════════════════════
+// GUESTS & BOOKINGS
+// ═══════════════════════════════════════════════════════════
+
+model Guest {
+  id          String    @id @default(uuid())
+  hotelId     String
+  hotel       Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  nationality String?
+  idType      String?   // passport, aadhar, etc.
+  idNumber    String?   // encrypted
+  notes       String?
+  
+  // Relations
+  bookings    Booking[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([hotelId])
+  @@index([hotelId, email])
+  @@map("guests")
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  hotelId         String
+  hotel           Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomId          String
+  room            Room          @relation(fields: [roomId], references: [id])
+  guestId         String
+  guest           Guest         @relation(fields: [guestId], references: [id])
+  
+  // The room's currentBooking reverse relation
+  currentForRoom  Room?         @relation("CurrentRoomBooking")
+  
+  // Dates (stored in UTC, displayed in hotel timezone)
+  checkInDate     DateTime      // date only semantics
+  checkOutDate    DateTime      // date only semantics
+  nights          Int
+  
+  guestCount      Int           @default(1)
+  source          BookingSource @default(MANUAL)
+  status          BookingStatus @default(CONFIRMED)
+  
+  // PMS reference
+  pmsBookingId    String?
+  pmsSource       String?
+  
+  // Notes
+  specialRequests String?
+  internalNotes   String?
+  actualCheckoutAt DateTime?
+  
+  // Relations
+  checkin         Checkin?
+  checkout        Checkout?
+  checkoutReminder CheckoutReminder?
+  
+  // Tracking
+  createdById     String?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  @@index([hotelId])
+  @@index([roomId])
+  @@index([guestId])
+  @@index([hotelId, checkInDate, checkOutDate])
+  @@map("bookings")
+}
+
+model Checkin {
+  id          String   @id @default(uuid())
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  hotelId     String
+  
+  checkedInAt DateTime @default(now())
+  checkedInBy String?  // userId
+  notes       String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("checkins")
+}
+
+model Checkout {
+  id           String   @id @default(uuid())
+  bookingId    String   @unique
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  hotelId      String
+  
+  checkedOutAt DateTime @default(now())
+  checkedOutBy String?  // userId
+  notes        String?
+  earlyCheckout Boolean @default(false)
+  
+  createdAt    DateTime @default(now())
+
+  @@index([hotelId])
+  @@map("checkouts")
+}
+
+// ═══════════════════════════════════════════════════════════
+// PMS INTEGRATION
+// ═══════════════════════════════════════════════════════════
+
+model PmsIntegration {
+  id            String    @id @default(uuid())
+  hotelId       String
+  hotel         Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  
+  providerName  String    // "opera", "protel", "mews", "cloudbeds", etc.
+  displayName   String
+  status        PmsStatus @default(DISCONNECTED)
+  
+  // Credentials (AES-256 encrypted JSON)
+  credentials   String?
+  
+  // Config
+  propertyId    String?
+  roomMapping   Json?     // pms_room_id -> smartstay_room_id
+  
+  // Sync
+  lastSyncAt    DateTime?
+  nextSyncAt    DateTime?
+  syncInterval  Int       @default(60) // minutes
+  
+  // Relations
+  syncLogs      PmsSyncLog[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([hotelId])
+  @@map("pms_integrations")
+}
+
+model PmsSyncLog {
+  id              String         @id @default(uuid())
+  integrationId   String
+  integration     PmsIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  
+  startedAt       DateTime       @default(now())
+  completedAt     DateTime?
+  success         Boolean
+  bookingsSynced  Int            @default(0)
+  errors          String?
+  details         Json?
+
+  @@index([integrationId])
+  @@map("pms_sync_logs")
+}
+
+// ═══════════════════════════════════════════════════════════
+// SUBSCRIPTIONS
+// ═══════════════════════════════════════════════════════════
+
+model Subscription {
+  id              String             @id @default(uuid())
+  hotelId         String             @unique
+  hotel           Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  
+  plan            SubscriptionPlan   @default(STARTER)
+  status          SubscriptionStatus @default(TRIAL)
+  
+  // Limits
+  maxRooms        Int                @default(10)
+  maxDevices      Int                @default(10)
+  maxUsers        Int                @default(5)
+  
+  // Billing metric
+  billedRooms     Int                @default(0)
+  
+  // Dates
+  trialEndsAt     DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelledAt     DateTime?
+  
+  // External billing
+  externalId      String?  // Stripe subscription ID, etc.
+  
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@map("subscriptions")
+}
+
+// ═══════════════════════════════════════════════════════════
+// NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+
+model Notification {
+  id          String           @id @default(uuid())
+  hotelId     String
+  hotel       Hotel            @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  type        NotificationType
+  title       String
+  body        String
+  data        Json?
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime         @default(now())
+
+  @@index([hotelId])
+  @@index([userId])
+  @@map("notifications")
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUDIT LOGS
+// ═══════════════════════════════════════════════════════════
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  hotelId     String?
+  hotel       Hotel?      @relation(fields: [hotelId], references: [id], onDelete: SetNull)
+  userId      String?
+  user        User?       @relation("AuditUser", fields: [userId], references: [id], onDelete: SetNull)
+  
+  action      AuditAction
+  resource    String      // "booking", "room", "device", etc.
+  resourceId  String?
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+  success     Boolean     @default(true)
+  errorMsg    String?
+  
+  createdAt   DateTime    @default(now())
+
+  @@index([hotelId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════
+// WI-FI ZONES
+// ═══════════════════════════════════════════════════════════
+
+model WifiZone {
+  id                String       @id @default(uuid())
+  hotelId           String
+  hotel             Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name              String       // "Floor 1 Zone", "Main Building"
+  ssid              String       // wifi network name
+  encryptedPassword String?      // AES-256-GCM encrypted, null for open networks
+  passwordIv        String?      // encryption IV (hex)
+  passwordTag       String?      // GCM auth tag (hex)
+  securityType      SecurityType @default(WPA2)
+  isHidden          Boolean      @default(false)
+  floorCoverage     String?      // e.g. "1,2" or "1-3"
+  description       String?
+  isActive          Boolean      @default(true)
+  rooms             Room[]       @relation("RoomWifiZone")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([hotelId])
+  @@map("wifi_zones")
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHECKOUT POLICIES & REMINDERS
+// ═══════════════════════════════════════════════════════════
+
+model CheckoutPolicy {
+  id             String             @id @default(uuid())
+  hotelId        String
+  hotel          Hotel              @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomId         String?            @unique // null = hotel default policy
+  room           Room?              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  name           String             @default("Default Policy")
+  mode           CheckoutPolicyMode @default(FIXED_TIME)
+  fixedTime      String?            // "11:00" HH:MM for FIXED_TIME mode
+  hourlyDuration Int?               // hours for HOURLY mode (3,6,9,12)
+  isDefault      Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([hotelId])
+  @@map("checkout_policies")
+}
+
+model CheckoutReminder {
+  id          String   @id @default(uuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime // when the reminder should fire
+  sentAt      DateTime?
+  isSent      Boolean  @default(false)
+  isCancelled Boolean  @default(false)
+  jobId       String?  // BullMQ job ID for cancellation
+  createdAt   DateTime @default(now())
+
+  @@index([hotelId])
+  @@index([scheduledAt])
+  @@map("checkout_reminders")
+}
+
