@@ -97,5 +97,52 @@ export class DevicesController {
     const payload = await devicesService.getHotelTvPayload(hotelId, roomId, connectedSsid);
     return reply.send({ success: true, data: payload });
   }
+
+  async sendCommand(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const { command, payload } = req.body as { command: string; payload?: any };
+    const res = await devicesService.sendCommand(hotelId, id, command, payload);
+    return reply.send(res);
+  }
+
+  async getDiagnostics(req: FastifyRequest, reply: FastifyReply) {
+    const diag = await devicesService.getDiagnostics();
+    return reply.send({ success: true, data: diag });
+  }
+
+  async assignDevice(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const { roomId, replaceExisting } = req.body as { roomId: string; replaceExisting?: boolean };
+    const res = await devicesService.assignDeviceToRoom(
+      hotelId,
+      id,
+      roomId,
+      req.user?.userId,
+      replaceExisting ?? true
+    );
+    return reply.send({ success: true, data: res });
+  }
+
+  async unassignDevice(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const res = await devicesService.unassignDevice(hotelId, id, req.user?.userId);
+    return reply.send(res);
+  }
+
+  async deleteDevice(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const res = await devicesService.deleteDevice(hotelId, id, req.user?.userId);
+    return reply.send(res);
+  }
+
+  async getAvailableDevices(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const devices = await devicesService.getAvailableDevices(hotelId);
+    return reply.send({ success: true, data: devices });
+  }
 }
 

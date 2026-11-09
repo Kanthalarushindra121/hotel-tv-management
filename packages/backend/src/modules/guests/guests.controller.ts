@@ -34,5 +34,12 @@ export class GuestsController {
     const guest = await guestsService.updateGuest(hotelId, id, req.body as any, req.user.userId);
     return reply.send({ success: true, data: guest });
   }
+
+  async deleteGuest(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const res = await guestsService.deleteGuest(hotelId, id, req.user?.userId);
+    return reply.send(res);
+  }
 }
 

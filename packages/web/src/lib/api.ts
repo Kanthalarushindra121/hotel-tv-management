@@ -203,6 +203,7 @@ export interface RoomDTO {
   id: string;
   hotelId?: string;
   number: string;
+  roomNumber?: string;
   floor: number;
   type: string;
   status: "AVAILABLE" | "OCCUPIED" | "CLEANING" | "MAINTENANCE" | string;
@@ -221,11 +222,20 @@ export interface RoomDTO {
   };
   device?: {
     id: string;
+    deviceId?: string;
     name?: string;
-    status: "ONLINE" | "OFFLINE" | "UNPAIRED" | string;
+    isOnline?: boolean;
+    status: "ONLINE" | "OFFLINE" | "UNPAIRED" | "PAIRED" | string;
+    screenState?: string;
     lastSeen?: string;
+    lastSeenAt?: string;
     pairingCode?: string;
   };
+  assignedTvId?: string | null;
+  deviceId?: string | null;
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
+  wifiZoneId?: string | null;
   wifiZone?: {
     id: string;
     name: string;
@@ -240,30 +250,68 @@ export interface RoomDTO {
   }>;
 }
 
+const formatRoom = (raw: any): RoomDTO => {
+  if (!raw) return raw;
+  const num = String(raw.number || raw.roomNumber || "").trim();
+  const history = raw.history || (raw.bookings || []).map((b: any) => ({
+    id: b.id,
+    guestName: b.guest ? `${b.guest.firstName || ""} ${b.guest.lastName || ""}`.trim() : (b.guestName || "Guest"),
+    checkIn: b.checkIn || (b.checkInDate ? new Date(b.checkInDate).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"),
+    checkOut: b.checkOut || (b.checkOutDate ? new Date(b.checkOutDate).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"),
+    nights: b.nights || 1,
+    status: b.status || "Completed",
+  }));
+  return {
+    ...raw,
+    number: num,
+    roomNumber: num,
+    type: raw.type || raw.roomType?.name || "Standard Room",
+    capacity: raw.capacity ?? raw.maxOccupancy ?? 2,
+    history,
+  };
+};
+
 export const roomsApi = {
   getAll: async (params?: Record<string, unknown>): Promise<RoomDTO[]> => {
     const res = await api.get("/rooms", { params });
     const payload = res.data;
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.data)) return payload.data;
-    if (Array.isArray(payload?.rooms)) return payload.rooms;
-    return [];
+    let list: any[] = [];
+    if (Array.isArray(payload)) list = payload;
+    else if (Array.isArray(payload?.data)) list = payload.data;
+    else if (Array.isArray(payload?.rooms)) list = payload.rooms;
+    return list.map(formatRoom);
   },
   getById: async (id: string): Promise<RoomDTO> => {
     const res = await api.get(`/rooms/${id}`);
-    return res.data?.data || res.data;
+    const data = res.data?.data || res.data;
+    return formatRoom(data);
   },
   create: async (data: Partial<RoomDTO>): Promise<RoomDTO> => {
     const res = await api.post("/rooms", data);
-    return res.data?.data || res.data;
+    return formatRoom(res.data?.data || res.data);
   },
   update: async (id: string, data: Partial<RoomDTO>): Promise<RoomDTO> => {
     const res = await api.put(`/rooms/${id}`, data);
-    return res.data?.data || res.data;
+    return formatRoom(res.data?.data || res.data);
   },
   delete: async (id: string) => {
     const res = await api.delete(`/rooms/${id}`);
     return res.data;
+  },
+  assignTv: async (roomId: string, tvDeviceId: string) => {
+    const res = await api.post(`/rooms/${roomId}/assign-tv`, { tvDeviceId });
+    return res.data?.data || res.data;
+  },
+  unassignTv: async (roomId: string) => {
+    const res = await api.post(`/rooms/${roomId}/unassign-tv`);
+    return res.data?.data || res.data;
+  },
+  getAvailableRooms: async (): Promise<RoomDTO[]> => {
+    const res = await api.get("/rooms/available");
+    const payload = res.data;
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.data)) return payload.data;
+    return [];
   },
 };
 
@@ -274,10 +322,12 @@ export interface CheckInPayload {
   email?: string;
   roomId: string;
   roomNumber?: string;
-  checkoutPolicy?: "FIXED_11AM" | "HOURLY_3H" | "HOURLY_6H" | "HOURLY_9H" | "HOURLY_12H" | "CUSTOM";
+  checkoutPolicy?: "FIXED_11AM" | "HOURLY" | "HOURLY_3H" | "HOURLY_6H" | "HOURLY_9H" | "HOURLY_12H" | "CUSTOM" | string;
   nights?: number;
+  hours?: number;
   checkOut?: string;
   specialRequests?: string;
+  forceCheckIn?: boolean;
 }
 
 export const checkinsApi = {
@@ -316,7 +366,9 @@ export interface WifiZoneDTO {
   id: string;
   name: string;
   ssid: string;
+  password?: string;
   security: "WPA2" | "WPA3" | "WPA" | "nopass" | string;
+  securityType?: string;
   floorCoverage?: string;
   isActive: boolean;
   assignedRoomsCount?: number;
@@ -401,6 +453,60 @@ export const staffApi = {
   },
   delete: async (id: string) => {
     const res = await api.delete(`/staff/${id}`);
+    return res.data;
+  },
+};
+
+// Guests API
+export interface GuestDTO {
+  id: string;
+  hotelId: string;
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+  phone?: string | null;
+  nationality?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  bookings?: Array<{
+    id: string;
+    roomId: string;
+    status: string;
+    checkInDate: string;
+    checkOutDate: string;
+    nights: number;
+    guestCount?: number;
+    specialRequests?: string | null;
+    actualCheckoutAt?: string | null;
+    room?: {
+      id: string;
+      roomNumber: string;
+      floor?: number;
+      roomType?: { name: string } | null;
+    };
+  }>;
+}
+
+export const guestsApi = {
+  getAll: async (params?: { search?: string; page?: number; limit?: number }): Promise<GuestDTO[]> => {
+    try {
+      const res = await api.get("/guests", { params });
+      const payload = res.data;
+      if (Array.isArray(payload?.guests)) return payload.guests;
+      if (Array.isArray(payload?.data)) return payload.data;
+      if (Array.isArray(payload)) return payload;
+      return [];
+    } catch {
+      return [];
+    }
+  },
+  getById: async (id: string): Promise<GuestDTO> => {
+    const res = await api.get(`/guests/${id}`);
+    return res.data?.data || res.data;
+  },
+  delete: async (id: string) => {
+    const res = await api.delete(`/guests/${id}`);
     return res.data;
   },
 };
@@ -522,5 +628,51 @@ export const devicesApi = {
       return devicesApi.confirmPairing(code, roomId);
     }
     return devicesApi.validatePairingCode(code);
+  },
+  sendCommand: async (deviceId: string, command: string, payload?: any) => {
+    const res = await api.post(`/devices/${deviceId}/command`, { command, payload });
+    return res.data;
+  },
+  assign: async (deviceId: string, roomId: string, replaceExisting: boolean = true) => {
+    const res = await api.post(`/devices/${deviceId}/assign`, { roomId, replaceExisting });
+    return res.data?.data || res.data;
+  },
+  unassign: async (deviceId: string) => {
+    const res = await api.post(`/devices/${deviceId}/unassign`);
+    return res.data;
+  },
+  delete: async (deviceId: string) => {
+    const res = await api.delete(`/devices/${deviceId}`);
+    return res.data;
+  },
+  getAvailableDevices: async () => {
+    const res = await api.get('/devices/available');
+    const payload = res.data;
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.data)) return payload.data;
+    return [];
+  },
+  getAvailableRooms: async (): Promise<RoomDTO[]> => {
+    const res = await api.get('/rooms/available');
+    const payload = res.data;
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.data)) return payload.data;
+    return [];
+  },
+  getDiagnostics: async () => {
+    const res = await api.get('/devices/diagnostics/system');
+    return res.data?.data || res.data;
+  },
+};
+
+// Screensaver API
+export const screensaverApi = {
+  get: async () => {
+    const res = await api.get('/hotel/screensaver');
+    return res.data?.data || res.data;
+  },
+  update: async (data: any) => {
+    const res = await api.put('/hotel/screensaver', data);
+    return res.data?.data || res.data;
   },
 };

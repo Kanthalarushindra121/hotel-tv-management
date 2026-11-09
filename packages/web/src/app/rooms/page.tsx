@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,6 +21,9 @@ import {
   DoorOpen,
   Trash2,
   AlertCircle,
+  AlertTriangle,
+  Edit,
+  Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -37,6 +40,32 @@ export default function RoomsPage() {
   // Room Deletion State
   const [roomToDelete, setRoomToDelete] = useState<RoomDTO | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // Edit Room State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [roomToEdit, setRoomToEdit] = useState<RoomDTO | null>(null);
+  const [editForm, setEditForm] = useState<{
+    number: string;
+    floor: number;
+    type: string;
+    capacity: number;
+    status: string;
+    notes: string;
+    assignedTvId: string;
+  }>({
+    number: "",
+    floor: 1,
+    type: "Deluxe Suite",
+    capacity: 2,
+    status: "AVAILABLE",
+    notes: "",
+    assignedTvId: "",
+  });
+
+  // Assign TV Modal State
+  const [assignTvModalOpen, setAssignTvModalOpen] = useState(false);
+  const [roomForAssignTv, setRoomForAssignTv] = useState<RoomDTO | null>(null);
+  const [selectedTvToAssign, setSelectedTvToAssign] = useState<string>("");
 
   // Form state for creating room
   const [newRoom, setNewRoom] = useState<{
@@ -105,9 +134,81 @@ export default function RoomsPage() {
         return [];
       }
     },
+    placeholderData: (prev) => prev,
+  });
+
+  const { data: serverAvailableDevices } = useQuery({
+    queryKey: ["available-devices"],
+    queryFn: async () => {
+      try {
+        return await devicesApi.getAvailableDevices();
+      } catch {
+        return [];
+      }
+    },
+    placeholderData: (prev) => prev,
   });
 
   const rooms: RoomDTO[] = serverRooms || [];
+  const availableDevices: any[] = serverAvailableDevices || [];
+
+  const updateRoomMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      return await roomsApi.update(id, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["available-devices"] });
+      toast.success("Room Updated Successfully");
+      setEditModalOpen(false);
+      setRoomToEdit(null);
+    },
+    onError: (err: any) => {
+      toast.error("Failed to update room", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
+
+  const assignTvMutation = useMutation({
+    mutationFn: async ({ roomId, tvDeviceId }: { roomId: string; tvDeviceId: string }) => {
+      return await roomsApi.assignTv(roomId, tvDeviceId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["available-devices"] });
+      toast.success("TV Device Assigned Successfully");
+      setAssignTvModalOpen(false);
+      setRoomForAssignTv(null);
+    },
+    onError: (err: any) => {
+      toast.error("Failed to assign TV", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
+
+  const handleOpenEdit = (room: RoomDTO) => {
+    setRoomToEdit(room);
+    setEditForm({
+      number: room.number || room.roomNumber || "",
+      floor: room.floor || 1,
+      type: room.type || "Deluxe Suite",
+      capacity: room.capacity || 2,
+      status: room.status || "AVAILABLE",
+      notes: room.notes || "",
+      assignedTvId: room.device?.id || "",
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleOpenAssignTv = (room: RoomDTO) => {
+    setRoomForAssignTv(room);
+    setSelectedTvToAssign(room.device?.id || (availableDevices[0]?.id || ""));
+    setAssignTvModalOpen(true);
+  };
 
   const deleteRoomMutation = useMutation({
     mutationFn: async (roomId: string) => {
@@ -188,34 +289,38 @@ export default function RoomsPage() {
     },
   });
 
-  // Extract unique room types and floors
-  const floors = Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
-  const roomTypes = Array.from(new Set(rooms.map((r) => r.type || "Standard")));
+  // Extract unique room types and floors (memoized)
+  const floors = useMemo(() => Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b), [rooms]);
+  const roomTypes = useMemo(() => Array.from(new Set(rooms.map((r) => r.type || "Standard"))), [rooms]);
 
-  // Filtered rooms
-  const filteredRooms = rooms.filter((room) => {
-    if (filterFloor !== "ALL" && room.floor !== filterFloor) return false;
-    if (filterStatus !== "ALL" && room.status.toUpperCase() !== filterStatus) return false;
-    if (filterType !== "ALL" && room.type !== filterType) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const numMatch = room.number.toLowerCase().includes(q);
-      const guestName = room.currentGuest
-        ? `${room.currentGuest.firstName || ""} ${room.currentGuest.lastName || ""}`.toLowerCase()
-        : "";
-      return numMatch || guestName.includes(q) || room.type?.toLowerCase().includes(q);
-    }
-    return true;
-  });
+  // Filtered rooms (memoized)
+  const filteredRooms = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return rooms.filter((room) => {
+      if (filterFloor !== "ALL" && room.floor !== filterFloor) return false;
+      if (filterStatus !== "ALL" && (room.status || "").toUpperCase() !== filterStatus) return false;
+      if (filterType !== "ALL" && room.type !== filterType) return false;
+      if (q) {
+        const numMatch = (room.number || room.roomNumber || "").toLowerCase().includes(q);
+        const guestName = room.currentGuest
+          ? `${room.currentGuest.firstName || ""} ${room.currentGuest.lastName || ""}`.toLowerCase()
+          : "";
+        return numMatch || guestName.includes(q) || (room.type || "").toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [rooms, filterFloor, filterStatus, filterType, searchQuery]);
 
-  // Group rooms by floor
-  const roomsByFloor = floors.reduce((acc, floorNum) => {
-    const list = filteredRooms.filter((r) => r.floor === floorNum);
-    if (list.length > 0) {
-      acc[floorNum] = list;
+  // Group rooms by floor (single pass O(N) instead of O(Floors * N))
+  const roomsByFloor = useMemo(() => {
+    const grouped: Record<number, RoomDTO[]> = {};
+    for (const room of filteredRooms) {
+      const fl = room.floor ?? 1;
+      if (!grouped[fl]) grouped[fl] = [];
+      grouped[fl].push(room);
     }
-    return acc;
-  }, {} as Record<number, RoomDTO[]>);
+    return grouped;
+  }, [filteredRooms]);
 
   return (
     <DashboardLayout>
@@ -362,109 +467,160 @@ export default function RoomsPage() {
                           room.currentGuest.name
                         : null;
 
-                      const tvOnline = room.device?.status?.toUpperCase() === "ONLINE";
+                      const tvOnline = room.device?.isOnline || room.device?.status?.toUpperCase() === "ONLINE";
 
                       return (
-                        <Link
+                        <div
                           key={room.id}
-                          href={`/rooms/${room.id}`}
-                          className={`bg-white rounded-2xl border p-5 transition-all hover:shadow-md flex flex-col justify-between group ${
+                          className={`bg-white rounded-2xl border p-5 transition-all hover:shadow-md flex flex-col justify-between ${
                             isOccupied
-                              ? "border-indigo-200/90 hover:border-indigo-400"
+                              ? "border-indigo-200/90 shadow-2xs"
                               : isAvailable
-                              ? "border-emerald-200/80 hover:border-emerald-400"
+                              ? "border-emerald-200/80 shadow-2xs"
                               : isCleaning
-                              ? "border-amber-200/80 hover:border-amber-400"
-                              : "border-rose-200/80 hover:border-rose-400"
+                              ? "border-amber-200/80 shadow-2xs"
+                              : "border-rose-200/80 shadow-2xs"
                           }`}
                         >
                           <div>
+                            {/* Card Top: Room Number & Status Badge */}
                             <div className="flex items-start justify-between">
                               <div>
-                                <span className="text-2xl font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
-                                  {room.number}
-                                </span>
-                                <span className="block text-xs text-slate-500 font-medium">
-                                  {room.type || "Room"}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xl md:text-2xl font-black text-slate-900">
+                                    Room {room.number || room.roomNumber}
+                                  </span>
+                                  <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                    Floor {room.floor}
+                                  </span>
+                                </div>
+                                <span className="block text-xs text-slate-500 font-medium mt-0.5">
+                                  {room.type || "Standard Room"}
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                    isOccupied
-                                      ? "bg-indigo-50 text-indigo-700"
-                                      : isAvailable
-                                      ? "bg-emerald-50 text-emerald-700"
-                                      : isCleaning
-                                      ? "bg-amber-50 text-amber-700"
-                                      : "bg-rose-50 text-rose-700"
-                                  }`}
-                                >
-                                  {room.status}
-                                </span>
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handlePromptDeleteRoom(room);
-                                  }}
-                                  title="Delete Room"
-                                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  isOccupied
+                                    ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                    : isAvailable
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : isCleaning
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-rose-50 text-rose-700 border border-rose-200"
+                                }`}
+                              >
+                                {room.status}
+                              </span>
                             </div>
 
-                            <div className="mt-4 pt-3 border-t border-slate-100 text-xs">
+                            {/* Guest Stay Info */}
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 text-xs">
                               {isOccupied && guestName ? (
-                                <div className="text-slate-800 font-semibold truncate flex items-center gap-1.5">
-                                  <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                  <span className="truncate">{guestName}</span>
+                                <div className="space-y-1">
+                                  <div className="text-slate-800 font-semibold truncate flex items-center gap-1.5">
+                                    <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                    <span className="truncate">{guestName}</span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>
+                                      Depart:{" "}
+                                      {room.currentGuest?.checkOut
+                                        ? new Date(room.currentGuest.checkOut).toLocaleDateString()
+                                        : "Tomorrow"}
+                                    </span>
+                                  </div>
                                 </div>
                               ) : (
                                 <span className="text-slate-400 italic text-[11px]">
-                                  {isAvailable ? "Vacant & inspected" : "Service requested"}
+                                  {isAvailable ? "Vacant & ready for guest" : "Service requested"}
                                 </span>
                               )}
                             </div>
-                          </div>
 
-                          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={`w-2 h-2 rounded-full ${
-                                  tvOnline ? "bg-emerald-500" : room.device ? "bg-slate-400" : "bg-slate-200"
-                                }`}
-                              />
-                              <span>{room.device ? (tvOnline ? "TV Online" : "TV Offline") : "No TV"}</span>
-                              {room.device && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    if (confirm(`Disconnect TV display from Room ${room.number}?`)) {
-                                      disconnectTvMutation.mutate(room.device!.id);
-                                    }
-                                  }}
-                                  title="Unlink TV from this room"
-                                  className="ml-1 text-[10px] text-slate-400 hover:text-rose-600 hover:underline cursor-pointer"
-                                >
-                                  (Unlink)
-                                </button>
+                            {/* Wi-Fi & TV Hardware Section */}
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1.5">
+                              {/* TV Device */}
+                              <div className="flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Tv className={`w-3.5 h-3.5 shrink-0 ${room.device ? (tvOnline ? "text-emerald-600" : "text-slate-500") : "text-slate-300"}`} />
+                                  <span className="font-semibold text-slate-800 truncate">
+                                    {room.device ? (room.device.name || "SmartStay TV") : "No TV Assigned"}
+                                  </span>
+                                </div>
+                                {room.device ? (
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
+                                      tvOnline
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : "bg-slate-100 text-slate-500 border border-slate-200"
+                                    }`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${tvOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+                                    <span>{tvOnline ? "ONLINE" : "OFFLINE"}</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAssignTv(room)}
+                                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                                  >
+                                    + Assign TV
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Wi-Fi Zone */}
+                              {room.wifiZone && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                                  <Wifi className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span className="truncate">Zone: {room.wifiZone.name || room.wifiZone.ssid}</span>
+                                </div>
                               )}
                             </div>
+                          </div>
 
-                            <div className="flex items-center gap-1 text-indigo-600 font-semibold group-hover:translate-x-0.5 transition-transform">
-                              <span>Details</span>
+                          {/* Action Buttons Bar */}
+                          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-1 text-xs">
+                            <Link
+                              href={`/rooms/${room.id}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-indigo-600 hover:bg-indigo-50 font-semibold text-[11px] transition-colors cursor-pointer"
+                            >
+                              <span>View Details</span>
                               <ArrowRight className="w-3 h-3" />
+                            </Link>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEdit(room)}
+                                title="Edit Room"
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAssignTv(room)}
+                                title={room.device ? "Change / Reassign TV" : "Assign TV"}
+                                className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                              >
+                                <Tv className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handlePromptDeleteRoom(room)}
+                                title="Delete Room"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
-                        </Link>
+                        </div>
                       );
                     })}
                   </div>
@@ -755,6 +911,311 @@ export default function RoomsPage() {
                     <>
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete Room</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Edit Room */}
+        {editModalOpen && roomToEdit && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Room {roomToEdit.number}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Update room settings, floor location, and assigned Smart TV device.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditModalOpen(false);
+                    setRoomToEdit(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  updateRoomMutation.mutate({
+                    id: roomToEdit.id,
+                    data: editForm,
+                  });
+                }}
+                className="space-y-4 mt-4"
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Room Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editForm.number}
+                      onChange={(e) => setEditForm({ ...editForm, number: e.target.value })}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Floor *
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      required
+                      value={editForm.floor}
+                      onChange={(e) => setEditForm({ ...editForm, floor: Number(e.target.value) })}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Room Type
+                    </label>
+                    <select
+                      value={editForm.type}
+                      onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    >
+                      <option value="Deluxe Suite">Deluxe Suite</option>
+                      <option value="Executive Room">Executive Room</option>
+                      <option value="Standard King">Standard King</option>
+                      <option value="Twin Bed Room">Twin Bed Room</option>
+                      <option value="Presidential Suite">Presidential Suite</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Status
+                    </label>
+                    <select
+                      value={editForm.status}
+                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 font-semibold"
+                    >
+                      <option value="AVAILABLE">Available</option>
+                      <option value="OCCUPIED">Occupied</option>
+                      <option value="CLEANING">Cleaning</option>
+                      <option value="MAINTENANCE">Maintenance</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Max Capacity (Guests)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={editForm.capacity}
+                    onChange={(e) => setEditForm({ ...editForm, capacity: Number(e.target.value) })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+
+                {/* Assigned TV Device Dropdown */}
+                <div className="p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <Tv className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Assigned Smart TV Display</span>
+                    </label>
+                    {roomToEdit.device && (
+                      <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-md">
+                        Connected
+                      </span>
+                    )}
+                  </div>
+
+                  <select
+                    value={editForm.assignedTvId}
+                    onChange={(e) => setEditForm({ ...editForm, assignedTvId: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  >
+                    <option value="">No TV Assigned (Unlink)</option>
+                    {roomToEdit.device && (
+                      <option value={roomToEdit.device.id}>
+                        {roomToEdit.device.name || "SmartStay TV"} ({roomToEdit.device.deviceId || roomToEdit.device.id}) — Current TV
+                      </option>
+                    )}
+                    {availableDevices
+                      .filter((d) => d.id !== roomToEdit.device?.id)
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name || d.deviceModel || "Android TV"} ({d.deviceId}) — {d.isOnline ? "Online" : "Offline"}
+                        </option>
+                      ))}
+                  </select>
+
+                  <p className="text-[10px] text-slate-500">
+                    Each room can have exactly one TV assigned. Changes are synchronized atomically.
+                  </p>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditModalOpen(false);
+                      setRoomToEdit(null);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={updateRoomMutation.isPending}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md shadow-indigo-200 disabled:opacity-60 cursor-pointer"
+                  >
+                    {updateRoomMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Updating Room...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Save Changes</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Assign TV Directly */}
+        {assignTvModalOpen && roomForAssignTv && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Tv className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Assign TV to Room {roomForAssignTv.number}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Connect an available SmartStay television to this room.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setAssignTvModalOpen(false);
+                    setRoomForAssignTv(null);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {availableDevices.length === 0 && !roomForAssignTv.device ? (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-2">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span>No Unassigned TVs Available</span>
+                  </div>
+                  <p className="text-[11px] text-amber-700">
+                    All paired TVs are currently assigned to other rooms. To pair a new TV, open the TV app, click <strong>"Pair New TV"</strong> in TV Devices, or unassign a TV from another room first.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Select Available TV Display:
+                  </label>
+                  <select
+                    value={selectedTvToAssign}
+                    onChange={(e) => setSelectedTvToAssign(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  >
+                    <option value="">-- Choose a TV device --</option>
+                    {roomForAssignTv.device && (
+                      <option value={roomForAssignTv.device.id}>
+                        {roomForAssignTv.device.name || "SmartStay TV"} ({roomForAssignTv.device.deviceId || roomForAssignTv.device.id}) — Currently Assigned
+                      </option>
+                    )}
+                    {availableDevices.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name || d.deviceModel || "SmartStay TV"} ({d.deviceId}) • {d.isOnline ? "Online" : "Offline"}
+                      </option>
+                    ))}
+                  </select>
+
+                  {roomForAssignTv.device && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Unassign TV from Room ${roomForAssignTv.number}?`)) {
+                          disconnectTvMutation.mutate(roomForAssignTv.device!.id);
+                          setAssignTvModalOpen(false);
+                        }
+                      }}
+                      className="text-xs text-rose-600 hover:text-rose-800 font-semibold hover:underline block pt-1"
+                    >
+                      Unassign current TV from Room {roomForAssignTv.number}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignTvModalOpen(false);
+                    setRoomForAssignTv(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!selectedTvToAssign || assignTvMutation.isPending}
+                  onClick={() => {
+                    if (selectedTvToAssign) {
+                      assignTvMutation.mutate({
+                        roomId: roomForAssignTv.id,
+                        tvDeviceId: selectedTvToAssign,
+                      });
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md shadow-indigo-200 disabled:opacity-50 cursor-pointer"
+                >
+                  {assignTvMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Assigning...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Assign TV to Room</span>
                     </>
                   )}
                 </button>

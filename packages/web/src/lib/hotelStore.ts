@@ -39,7 +39,7 @@ export function buildWifiQrString(
   return `WIFI:S:${ssid};T:${security};P:${password};;`;
 }
 
-const DEFAULT_AMENITIES: AmenityItem[] = [
+export const DEFAULT_AMENITIES: AmenityItem[] = [
   { id: "dining", name: "Royal Dining", icon: "utensils", hours: "7 AM - 11 PM", isActive: true },
   { id: "pool", name: "Infinity Pool", icon: "waves", hours: "6 AM - 9 PM", isActive: true },
   { id: "gym", name: "Fitness Center", icon: "dumbbell", hours: "24/7", isActive: true },

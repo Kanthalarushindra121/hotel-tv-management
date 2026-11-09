@@ -6,8 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Wifi,
-  Clock,
-  Phone,
   Sparkles,
   Utensils,
   Waves,
@@ -20,11 +18,16 @@ import {
   Bell,
   RefreshCw,
   Wine,
+  CheckCircle2,
+  PhoneCall,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import { useHotelStore, buildWifiQrString } from "@/lib/hotelStore";
-import { hotelApi, roomsApi, RoomDTO } from "@/lib/api";
+import { hotelApi, roomsApi, wifiApi, RoomDTO, WifiZoneDTO } from "@/lib/api";
 
-type TvState = "GUEST_ACTIVE" | "DEFAULT_MODE" | "CHECKOUT_DAY" | "SCREENSAVER" | "PAIRING";
+// EXACTLY 3 SCREENSAVER STATES (+ PAIRING)
+export type TvState = "WELCOME_HOTEL" | "WELCOME_CUSTOMER" | "CHECKOUT_THANKYOU" | "PAIRING";
 
 function renderAmenityIcon(iconName: string) {
   const iconStyle = { width: "1rem", height: "1rem", color: "#818cf8", flexShrink: 0 };
@@ -52,15 +55,17 @@ function renderAmenityIcon(iconName: string) {
 
 export default function TvPreviewPage() {
   const [mounted, setMounted] = useState(false);
-  const [screenState, setScreenState] = useState<TvState>("DEFAULT_MODE");
+  const [screenState, setScreenState] = useState<TvState>("WELCOME_HOTEL");
   const [currentTime, setCurrentTime] = useState("");
   const [selectedRoomId, setSelectedRoomId] = useState<string>("");
+  const [customConnectedSsid, setCustomConnectedSsid] = useState<string>("");
 
   const hotelStore = useHotelStore();
 
   // Fetch hotel profile & rooms from backend
   const { data: serverProfile } = useQuery({
     queryKey: ["hotel-profile"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         return await hotelApi.getProfile();
@@ -72,9 +77,22 @@ export default function TvPreviewPage() {
 
   const { data: serverRooms } = useQuery({
     queryKey: ["rooms"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         return await roomsApi.getAll();
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  const { data: serverWifiZones } = useQuery({
+    queryKey: ["wifi-zones"],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      try {
+        return await wifiApi.getAll();
       } catch {
         return [];
       }
@@ -100,20 +118,54 @@ export default function TvPreviewPage() {
   useEffect(() => {
     if (activeRoom) {
       if (activeRoom.status === "OCCUPIED" && activeRoom.currentGuest) {
-        setScreenState("GUEST_ACTIVE");
+        setScreenState("WELCOME_CUSTOMER");
       } else {
-        setScreenState("DEFAULT_MODE");
+        setScreenState("WELCOME_HOTEL");
       }
     }
   }, [activeRoom?.id, activeRoom?.status]);
 
   // Dynamic values
   const hotelName = serverProfile?.name || hotelStore.hotelName || "SmartStay Luxury Resort";
-  const hotelTagline = serverProfile?.tagline || serverProfile?.description || hotelStore.tagline || "Welcome to our hospitality experience";
-  const wifiNetwork = serverProfile?.wifiSettings?.networkName || hotelStore.wifiNetwork || `${hotelName.replace(/\s+/g, "_")}_Guest`;
-  const wifiPassword = serverProfile?.wifiSettings?.password || hotelStore.wifiPassword || "";
-  const wifiSecurity = (serverProfile?.wifiSettings?.securityType as any) || hotelStore.wifiSecurity || "WPA2";
-  const wifiQrString = buildWifiQrString(wifiNetwork, wifiPassword, wifiSecurity);
+  const hotelTagline = serverProfile?.tagline || serverProfile?.description || hotelStore.tagline || "Experience world-class luxury and hospitality.";
+
+  // Wi-Fi details: Connected Wi-Fi name should be TV connected Wi-Fi name
+  // If that name matches any added Wi-Fi management name, QR should display password QR entered in Wi-Fi Management
+  const roomWifiZone = (activeRoom as any)?.wifiZone;
+  const wifiZonesList = Array.isArray(serverWifiZones) ? serverWifiZones : [];
+
+  const defaultTvSsid =
+    roomWifiZone?.ssid ||
+    serverProfile?.wifiSettings?.networkName ||
+    hotelStore.wifiNetwork ||
+    `${hotelName.replace(/\s+/g, "_")}_Guest`;
+
+  const tvConnectedSsid = customConnectedSsid.trim() || defaultTvSsid;
+
+  // Search if tvConnectedSsid matches any configured zone in Wi-Fi Management
+  const matchedZone = wifiZonesList.find(
+    (z: any) => z.ssid?.toLowerCase() === tvConnectedSsid.toLowerCase()
+  );
+
+  const matchedHotelSettings =
+    serverProfile?.wifiSettings?.networkName?.toLowerCase() === tvConnectedSsid.toLowerCase()
+      ? serverProfile.wifiSettings
+      : null;
+
+  const isMatchedWithWifiManagement = Boolean(matchedZone || matchedHotelSettings);
+
+  const wifiPassword =
+    matchedZone?.password ||
+    matchedHotelSettings?.password ||
+    (isMatchedWithWifiManagement ? hotelStore.wifiPassword : "");
+
+  const wifiSecurity =
+    matchedZone?.securityType ||
+    matchedZone?.security ||
+    matchedHotelSettings?.securityType ||
+    (isMatchedWithWifiManagement ? "WPA2" : "nopass");
+
+  const wifiQrString = buildWifiQrString(tvConnectedSsid, wifiPassword, wifiSecurity);
 
   const checkoutTime = serverProfile?.settings?.checkOutTime || hotelStore.checkoutTime || "11:00 AM";
   const quietHours = `${serverProfile?.settings?.quietHoursStart || hotelStore.quietHoursStart || "10:00 PM"} – ${serverProfile?.settings?.quietHoursEnd || hotelStore.quietHoursEnd || "7:00 AM"}`;
@@ -132,15 +184,16 @@ export default function TvPreviewPage() {
     : (hotelStore.amenities && hotelStore.amenities.length > 0)
     ? hotelStore.amenities.filter((a) => a.isActive)
     : [
-        { id: "1", name: "Dining", icon: "utensils", hours: "7 AM - 11 PM" },
-        { id: "2", name: "Pool", icon: "waves", hours: "6 AM - 9 PM" },
+        { id: "1", name: "Royal Dining", icon: "utensils", hours: "7 AM - 11 PM" },
+        { id: "2", name: "Infinity Pool", icon: "waves", hours: "6 AM - 9 PM" },
         { id: "3", name: "Fitness Center", icon: "dumbbell", hours: "24/7" },
         { id: "4", name: "Valet Parking", icon: "car", hours: "Complimentary" },
+        { id: "5", name: "Ayurvedic Spa", icon: "sparkles", hours: "9 AM - 8 PM" },
       ];
 
   const guestName = activeRoom?.currentGuest?.firstName
     ? `${activeRoom.currentGuest.firstName} ${activeRoom.currentGuest.lastName || ""}`.trim()
-    : (activeRoom?.currentGuest?.name || "Rahul");
+    : (activeRoom?.currentGuest?.name || "Rahul Sharma");
 
   const roomNumber = activeRoom?.number || "101";
 
@@ -188,36 +241,64 @@ export default function TvPreviewPage() {
             <ArrowLeft style={{ width: "0.875rem", height: "0.875rem" }} />
             <span>Dashboard</span>
           </Link>
-          <span style={{ fontWeight: 600, color: "#818cf8" }}>SmartStay TV 4K Simulator (16:9)</span>
-          <span style={{ color: "#94a3b8" }}>• {hotelName} (Room {roomNumber} TV)</span>
+          <span style={{ fontWeight: 600, color: "#818cf8" }}>SmartStay TV Screensaver System</span>
+          <span style={{ color: "#94a3b8" }}>• {hotelName} (Room {roomNumber})</span>
         </div>
 
-        {/* Room Selector if multiple rooms exist */}
-        {rooms.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ color: "#94a3b8", fontSize: "0.6875rem" }}>Room:</span>
+        {/* Top Controls: Room Selector & Connected Wi-Fi Simulator */}
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+          {rooms.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ color: "#94a3b8", fontSize: "0.6875rem" }}>Room:</span>
+              <select
+                value={activeRoom?.id || ""}
+                onChange={(e) => setSelectedRoomId(e.target.value)}
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.6)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  borderRadius: "0.375rem",
+                  padding: "0.2rem 0.5rem",
+                  fontSize: "0.75rem",
+                  color: "#ffffff",
+                }}
+              >
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id} style={{ backgroundColor: "#1e1e2f", color: "#fff" }}>
+                    Room {r.number} ({r.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Connected Wi-Fi Switcher / Tester */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+            <span style={{ color: "#94a3b8", fontSize: "0.6875rem" }}>Connected Wi-Fi:</span>
             <select
-              value={activeRoom?.id || ""}
-              onChange={(e) => setSelectedRoomId(e.target.value)}
+              value={customConnectedSsid || defaultTvSsid}
+              onChange={(e) => setCustomConnectedSsid(e.target.value)}
               style={{
                 backgroundColor: "rgba(0,0,0,0.6)",
                 border: "1px solid rgba(255,255,255,0.2)",
                 borderRadius: "0.375rem",
-                padding: "0.125rem 0.5rem",
+                padding: "0.2rem 0.5rem",
                 fontSize: "0.75rem",
-                color: "#ffffff",
+                color: isMatchedWithWifiManagement ? "#86efac" : "#ffffff",
               }}
             >
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id} style={{ backgroundColor: "#1e1e2f", color: "#fff" }}>
-                  Room {r.number} ({r.status})
+              <option value={defaultTvSsid}>
+                {defaultTvSsid} (TV Detected)
+              </option>
+              {wifiZonesList.map((z: any) => (
+                <option key={z.id} value={z.ssid} style={{ backgroundColor: "#1e1e2f", color: "#fff" }}>
+                  {z.ssid} ({z.name} in Wi-Fi Management)
                 </option>
               ))}
             </select>
           </div>
-        )}
+        </div>
 
-        {/* State Toggle Buttons */}
+        {/* State Toggle Buttons - EXACT 3 STATES */}
         <div
           style={{
             display: "flex",
@@ -229,15 +310,14 @@ export default function TvPreviewPage() {
           }}
         >
           <span style={{ padding: "0 0.5rem", color: "#94a3b8", fontSize: "0.6875rem", fontWeight: 500 }}>
-            Screen State:
+            Screensaver State:
           </span>
           {(
             [
-              { id: "GUEST_ACTIVE", label: `Guest: ${guestName}` },
-              { id: "DEFAULT_MODE", label: "Hotel Default" },
-              { id: "CHECKOUT_DAY", label: "Checkout Day" },
-              { id: "SCREENSAVER", label: "Screensaver" },
-              { id: "PAIRING", label: "Pairing Mode" },
+              { id: "WELCOME_HOTEL", label: "1. Welcome Hotel (Unassigned)" },
+              { id: "WELCOME_CUSTOMER", label: `2. Welcome Customer (${guestName})` },
+              { id: "CHECKOUT_THANKYOU", label: "3. Checkout Thank You" },
+              { id: "PAIRING", label: "Pairing Setup" },
             ] as const
           ).map((item) => (
             <button
@@ -302,8 +382,8 @@ export default function TvPreviewPage() {
             }}
           />
 
-          {/* ═══════════════ STATE 1: GUEST ACTIVE (Personalized Welcome) ═══════════════ */}
-          {screenState === "GUEST_ACTIVE" && (
+          {/* ═══════════════ SCREENSAVER STATE 1: WELCOME HOTEL NAME (Unassigned / Unoccupied) ═══════════════ */}
+          {screenState === "WELCOME_HOTEL" && (
             <div
               style={{
                 position: "relative",
@@ -315,7 +395,262 @@ export default function TvPreviewPage() {
                 boxSizing: "border-box",
               }}
             >
-              {/* Top Header */}
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <span style={{ fontSize: "0.8125rem", fontWeight: 700, letterSpacing: "0.15em", color: "#818cf8", textTransform: "uppercase" }}>
+                    WELCOME TO
+                  </span>
+                  <h1 style={{ fontSize: "2.5rem", fontWeight: 900, color: "#ffffff", margin: "0.25rem 0 0 0", letterSpacing: "-0.025em" }}>
+                    {hotelName}
+                  </h1>
+                  <p style={{ fontSize: "0.875rem", color: "#94a3b8", margin: "0.25rem 0 0 0", maxWidth: "34rem" }}>
+                    {hotelTagline}
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                  <div
+                    style={{
+                      borderRadius: "0.75rem",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      backgroundColor: "rgba(255, 255, 255, 0.05)",
+                      padding: "0.5rem 1.25rem",
+                      backdropFilter: "blur(12px)",
+                      textAlign: "center",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.625rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "#94a3b8", display: "block" }}>
+                      SMART TV
+                    </span>
+                    <p style={{ fontSize: "1.5rem", fontWeight: 900, color: "#ffffff", margin: 0 }}>
+                      ROOM {roomNumber}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <p style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>{currentTime || "10:30 AM"}</p>
+                    <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: 0 }}>
+                      {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Main Information Cards Grid */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: "1.5rem",
+                  margin: "auto 0",
+                  width: "100%",
+                }}
+              >
+                {/* Card 1: Property Overview */}
+                <div
+                  style={{
+                    borderRadius: "1rem",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.05)",
+                    padding: "1.25rem",
+                    backdropFilter: "blur(12px)",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      Hotel Hospitality
+                    </span>
+                    <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.625rem", fontSize: "0.8125rem" }}>
+                      <p style={{ color: "#cbd5e1", margin: 0, lineHeight: 1.4 }}>
+                        Welcome to {hotelName}. Our property features state-of-the-art guest rooms and 24/7 dedicated reception.
+                      </p>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#818cf8" }}>
+                        <ShieldCheck style={{ width: "1rem", height: "1rem" }} />
+                        <span style={{ fontWeight: 600 }}>Standard Check-out: {checkoutTime}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ paddingTop: "0.75rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)", fontSize: "0.75rem", color: "#94a3b8" }}>
+                    Front Desk Direct: {conciergePhone}
+                  </div>
+                </div>
+
+                {/* Card 2: Connected Wi-Fi (ONLY QR code + "Connect WiFi" centered directly below) */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    borderRadius: "1rem",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.05)",
+                    padding: "1.25rem",
+                    backdropFilter: "blur(12px)",
+                    minWidth: 0,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: "0.75rem",
+                      backgroundColor: "#ffffff",
+                      padding: "0.5rem",
+                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <QRCodeSVG
+                      value={wifiQrString}
+                      size={105}
+                      level="M"
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      color: "#ffffff",
+                      marginTop: "0.75rem",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Connect WiFi
+                  </span>
+                </div>
+
+                {/* Card 3: Hotel Amenities (Clean single column with text ellipsis - NO OVERFLOW) */}
+                <div
+                  style={{
+                    borderRadius: "1rem",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.05)",
+                    padding: "1.25rem",
+                    backdropFilter: "blur(12px)",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      HOTEL AMENITIES
+                    </span>
+                    <span style={{ fontSize: "0.625rem", color: "#64748b", textTransform: "uppercase" }}>
+                      Property Features
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "0.625rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.45rem",
+                      minWidth: 0,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {activeAmenities.slice(0, 4).map((amenity: { id: string; name: string; icon: string; hours?: string }) => (
+                      <div
+                        key={amenity.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "0.5rem",
+                          minWidth: 0,
+                          width: "100%",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0, flex: 1, overflow: "hidden" }}>
+                          {renderAmenityIcon(amenity.icon)}
+                          <span
+                            style={{
+                              fontSize: "0.8125rem",
+                              fontWeight: 600,
+                              color: "#f1f5f9",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              minWidth: 0,
+                            }}
+                            title={amenity.name}
+                          >
+                            {amenity.name}
+                          </span>
+                        </div>
+                        {amenity.hours && (
+                          <span
+                            style={{
+                              fontSize: "0.6875rem",
+                              fontWeight: 500,
+                              color: "#c7d2fe",
+                              backgroundColor: "rgba(99, 102, 241, 0.18)",
+                              padding: "0.125rem 0.4rem",
+                              borderRadius: "0.375rem",
+                              flexShrink: 0,
+                              whiteSpace: "nowrap",
+                              border: "1px solid rgba(99, 102, 241, 0.25)",
+                            }}
+                          >
+                            {amenity.hours}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <p style={{ margin: "0.5rem 0 0 0", fontSize: "0.6875rem", color: "#64748b" }}>
+                    Room Service: Dial 9 on in-room phone.
+                  </p>
+                </div>
+              </div>
+
+              {/* Bottom Remote & Wakeup Bar */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+                  paddingTop: "1rem",
+                  fontSize: "0.75rem",
+                  color: "#94a3b8",
+                }}
+              >
+                <span>Quiet Hours: {quietHours} • Reception Desk: {conciergePhone}</span>
+                <span style={{ color: "rgba(255, 255, 255, 0.4)", letterSpacing: "0.05em" }}>
+                  Press any button on TV remote to wake screen
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════ SCREENSAVER STATE 2: WELCOME CUSTOMER NAME (Assigned / Occupied) ═══════════════ */}
+          {screenState === "WELCOME_CUSTOMER" && (
+            <div
+              style={{
+                position: "relative",
+                display: "flex",
+                height: "100%",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                padding: "2.5rem 3rem",
+                boxSizing: "border-box",
+              }}
+            >
+              {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <p style={{ fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.15em", color: "#818cf8", textTransform: "uppercase", margin: 0 }}>
@@ -332,7 +667,7 @@ export default function TvPreviewPage() {
                       borderRadius: "0.75rem",
                       border: "1px solid rgba(255, 255, 255, 0.1)",
                       backgroundColor: "rgba(255, 255, 255, 0.05)",
-                      padding: "0.5rem 1rem",
+                      padding: "0.5rem 1.25rem",
                       backdropFilter: "blur(12px)",
                       textAlign: "center",
                     }}
@@ -345,7 +680,7 @@ export default function TvPreviewPage() {
                     </p>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <p style={{ fontSize: "1.875rem", fontWeight: 700, margin: 0 }}>{currentTime || "10:30 AM"}</p>
+                    <p style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>{currentTime || "10:30 AM"}</p>
                     <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: 0 }}>
                       {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                     </p>
@@ -353,16 +688,17 @@ export default function TvPreviewPage() {
                 </div>
               </div>
 
-              {/* Main Information Cards Grid */}
+              {/* 3 Main Information Cards Grid */}
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                   gap: "1.5rem",
                   margin: "auto 0",
+                  width: "100%",
                 }}
               >
-                {/* Stay Card */}
+                {/* Stay Reservation Card */}
                 <div
                   style={{
                     borderRadius: "1rem",
@@ -370,38 +706,56 @@ export default function TvPreviewPage() {
                     backgroundColor: "rgba(255, 255, 255, 0.05)",
                     padding: "1.25rem",
                     backdropFilter: "blur(12px)",
+                    minWidth: 0,
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
                   }}
                 >
-                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Your Reservation
                   </span>
-                  <div style={{ marginTop: "0.875rem", display: "flex", flexDirection: "column", gap: "0.625rem", fontSize: "0.8125rem" }}>
+                  <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.8125rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#94a3b8" }}>Room</span>
-                      <span style={{ fontWeight: 700 }}>Suite {roomNumber}</span>
+                      <span style={{ color: "#94a3b8" }}>Guest</span>
+                      <span style={{ fontWeight: 600, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "60%" }}>
+                        {guestName}
+                      </span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#94a3b8" }}>Checkout Time</span>
+                      <span style={{ color: "#94a3b8" }}>Room</span>
+                      <span style={{ fontWeight: 600, color: "#ffffff" }}>{roomNumber}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#94a3b8" }}>Checkout</span>
                       <span style={{ fontWeight: 600, color: "#fcd34d" }}>By {checkoutTime}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#94a3b8" }}>Concierge Desk</span>
-                      <span style={{ fontWeight: 600, color: "#ffffff" }}>{conciergePhone}</span>
+                      <span style={{ color: "#94a3b8" }}>Front Desk</span>
+                      <span style={{ fontWeight: 600, color: "#ffffff" }}>Dial 9</span>
                     </div>
+                  </div>
+                  <div style={{ paddingTop: "0.625rem", borderTop: "1px solid rgba(255, 255, 255, 0.08)", fontSize: "0.6875rem", color: "#64748b" }}>
+                    Need express checkout? Contact Reception.
                   </div>
                 </div>
 
-                {/* Wi-Fi Card with Real Live QR */}
+                {/* In-Room Wi-Fi Card (ONLY QR Code + "Connect WiFi" centered directly below) */}
                 <div
                   style={{
                     display: "flex",
+                    flexDirection: "column",
                     alignItems: "center",
-                    gap: "1rem",
+                    justifyContent: "center",
+                    textAlign: "center",
                     borderRadius: "1rem",
-                    border: "1px solid rgba(99, 102, 241, 0.3)",
-                    backgroundColor: "rgba(49, 46, 129, 0.2)",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "rgba(255, 255, 255, 0.05)",
                     padding: "1.25rem",
                     backdropFilter: "blur(12px)",
+                    minWidth: 0,
+                    overflow: "hidden",
                   }}
                 >
                   <div
@@ -415,24 +769,24 @@ export default function TvPreviewPage() {
                   >
                     <QRCodeSVG
                       value={wifiQrString}
-                      size={92}
+                      size={105}
                       level="M"
                     />
                   </div>
-                  <div style={{ minWidth: 0 }}>
-                    <span style={{ fontSize: "0.6875rem", fontWeight: 600, color: "#818cf8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      Connect to Wi-Fi
-                    </span>
-                    <p style={{ fontSize: "0.875rem", fontWeight: 700, margin: "0.125rem 0 0 0", color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {wifiNetwork}
-                    </p>
-                    <p style={{ fontSize: "0.6875rem", color: "#94a3b8", margin: "0.25rem 0 0 0", lineHeight: 1.3 }}>
-                      Scan QR code on your phone camera for instant connection.
-                    </p>
-                  </div>
+                  <span
+                    style={{
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      color: "#ffffff",
+                      marginTop: "0.75rem",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Connect WiFi
+                  </span>
                 </div>
 
-                {/* Dynamic Amenities Card */}
+                {/* Hotel Amenities Card (Properly constrained: NO OVERFLOW) */}
                 <div
                   style={{
                     borderRadius: "1rem",
@@ -440,6 +794,7 @@ export default function TvPreviewPage() {
                     backgroundColor: "rgba(255, 255, 255, 0.05)",
                     padding: "1.25rem",
                     backdropFilter: "blur(12px)",
+                    minWidth: 0,
                     overflow: "hidden",
                     display: "flex",
                     flexDirection: "column",
@@ -450,77 +805,80 @@ export default function TvPreviewPage() {
                     <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                       HOTEL AMENITIES
                     </span>
-                    <span style={{ fontSize: "0.625rem", color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    <span style={{ fontSize: "0.625rem", color: "#64748b", textTransform: "uppercase" }}>
                       Guest Services
                     </span>
                   </div>
 
                   <div
                     style={{
-                      marginTop: "0.75rem",
+                      marginTop: "0.625rem",
                       display: "flex",
                       flexDirection: "column",
-                      gap: "0.5rem",
-                      fontSize: "0.75rem",
+                      gap: "0.45rem",
+                      minWidth: 0,
+                      overflow: "hidden",
                     }}
                   >
-                    {activeAmenities.length > 0 ? (
-                      activeAmenities.slice(0, 5).map((amenity: { id: string; name: string; icon: string; hours?: string }) => (
-                        <div
-                          key={amenity.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: "0.5rem",
-                            minWidth: 0,
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0, overflow: "hidden" }}>
-                            {renderAmenityIcon(amenity.icon)}
-                            <span
-                              style={{
-                                fontSize: "0.8125rem",
-                                fontWeight: 600,
-                                color: "#f1f5f9",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {amenity.name}
-                            </span>
-                          </div>
-
-                          {amenity.hours && (
-                            <span
-                              style={{
-                                fontSize: "0.6875rem",
-                                fontWeight: 500,
-                                color: "#c7d2fe",
-                                backgroundColor: "rgba(99, 102, 241, 0.18)",
-                                padding: "0.125rem 0.5rem",
-                                borderRadius: "0.375rem",
-                                flexShrink: 0,
-                                whiteSpace: "nowrap",
-                                border: "1px solid rgba(99, 102, 241, 0.25)",
-                              }}
-                            >
-                              {amenity.hours}
-                            </span>
-                          )}
+                    {activeAmenities.slice(0, 4).map((amenity: { id: string; name: string; icon: string; hours?: string }) => (
+                      <div
+                        key={amenity.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "0.5rem",
+                          minWidth: 0,
+                          width: "100%",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0, flex: 1, overflow: "hidden" }}>
+                          {renderAmenityIcon(amenity.icon)}
+                          <span
+                            style={{
+                              fontSize: "0.8125rem",
+                              fontWeight: 600,
+                              color: "#f1f5f9",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              minWidth: 0,
+                            }}
+                            title={amenity.name}
+                          >
+                            {amenity.name}
+                          </span>
                         </div>
-                      ))
-                    ) : (
-                      <p style={{ fontSize: "0.75rem", color: "#64748b", fontStyle: "italic", margin: 0 }}>
-                        Explore our 24/7 guest hospitality services.
-                      </p>
-                    )}
+
+                        {amenity.hours && (
+                          <span
+                            style={{
+                              fontSize: "0.6875rem",
+                              fontWeight: 500,
+                              color: "#c7d2fe",
+                              backgroundColor: "rgba(99, 102, 241, 0.18)",
+                              padding: "0.125rem 0.4rem",
+                              borderRadius: "0.375rem",
+                              flexShrink: 0,
+                              whiteSpace: "nowrap",
+                              border: "1px solid rgba(99, 102, 241, 0.25)",
+                            }}
+                          >
+                            {amenity.hours}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.6875rem", color: "#94a3b8", marginTop: "0.5rem" }}>
+                    <span>Dial 9 for In-Room Dining &amp; Concierge</span>
                   </div>
                 </div>
               </div>
 
-              {/* Bottom Entertainment & Rules Bar */}
+              {/* Bottom Remote & Entertainment Bar */}
               <div
                 style={{
                   display: "flex",
@@ -538,165 +896,28 @@ export default function TvPreviewPage() {
                   <span>Reception / Front Desk: {conciergePhone}</span>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                  <span style={{ color: "#94a3b8" }}>Press Home or Select on TV Remote:</span>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      borderRadius: "0.75rem",
-                      backgroundColor: "#ffffff",
-                      padding: "0.375rem 0.875rem",
-                      fontWeight: 700,
-                      color: "#030712",
-                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                    }}
-                  >
-                    <Play style={{ width: "0.875rem", height: "0.875rem", fill: "#4f46e5", color: "#4f46e5" }} />
-                    <span>Open TV & Entertainment (Netflix / YouTube)</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════════════ STATE 2: DEFAULT MODE (No Guest Checked In) ═══════════════ */}
-          {screenState === "DEFAULT_MODE" && (
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                height: "100%",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                padding: "2.5rem 3rem",
-                boxSizing: "border-box",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.15em", color: "#818cf8", textTransform: "uppercase", margin: 0 }}>
-                    Welcome to
-                  </p>
-                  <h1 style={{ fontSize: "2.75rem", fontWeight: 900, color: "#ffffff", margin: "0.25rem 0 0 0" }}>
-                    {hotelName}
-                  </h1>
-                  <p style={{ fontSize: "0.875rem", color: "#94a3b8", margin: "0.5rem 0 0 0", maxWidth: "32rem" }}>
-                    {hotelTagline}
-                  </p>
-                </div>
-
-                <div style={{ textAlign: "right" }}>
-                  <p style={{ fontSize: "1.875rem", fontWeight: 700, margin: 0 }}>{currentTime || "10:30 AM"}</p>
-                  <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: 0 }}>
-                    {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                  </p>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                  gap: "1.5rem",
-                  margin: "auto 0",
-                  maxWidth: "48rem",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "1.25rem",
-                    borderRadius: "1rem",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    backgroundColor: "rgba(255, 255, 255, 0.05)",
-                    padding: "1.5rem",
-                    backdropFilter: "blur(12px)",
-                  }}
-                >
-                  <div
-                    style={{
-                      borderRadius: "0.75rem",
-                      backgroundColor: "#ffffff",
-                      padding: "0.625rem",
-                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <QRCodeSVG
-                      value={wifiQrString}
-                      size={90}
-                    />
-                  </div>
-                  <div>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#818cf8", textTransform: "uppercase" }}>
-                      Guest Wi-Fi
-                    </span>
-                    <p style={{ fontSize: "1rem", fontWeight: 700, margin: "0.25rem 0 0 0", color: "#ffffff" }}>
-                      {wifiNetwork}
-                    </p>
-                    <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: "0.125rem 0 0 0" }}>
-                      Scan to connect high-speed internet.
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    borderRadius: "1rem",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    backgroundColor: "rgba(255, 255, 255, 0.05)",
-                    padding: "1.5rem",
-                    backdropFilter: "blur(12px)",
-                  }}
-                >
-                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#818cf8", textTransform: "uppercase" }}>
-                    Reception & Concierge
-                  </span>
-                  <p style={{ fontSize: "1rem", fontWeight: 700, margin: "0.25rem 0 0 0", color: "#ffffff" }}>
-                    Available 24 / 7
-                  </p>
-                  <p style={{ fontSize: "0.75rem", color: "#94a3b8", margin: "0.25rem 0 0 0" }}>
-                    Direct line: {conciergePhone}
-                  </p>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  borderTop: "1px solid rgba(255, 255, 255, 0.1)",
-                  paddingTop: "1rem",
-                  fontSize: "0.75rem",
-                  color: "#94a3b8",
-                }}
-              >
-                <p style={{ margin: 0 }}>SmartStay TV OS • Room {roomNumber}</p>
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: "0.5rem",
                     borderRadius: "0.75rem",
-                    backgroundColor: "rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "#ffffff",
                     padding: "0.375rem 0.875rem",
-                    fontWeight: 500,
-                    color: "#ffffff",
+                    fontWeight: 700,
+                    color: "#030712",
+                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                   }}
                 >
-                  <Play style={{ width: "0.875rem", height: "0.875rem" }} />
-                  <span>Open TV Applications</span>
+                  <Play style={{ width: "0.875rem", height: "0.875rem", fill: "#4f46e5", color: "#4f46e5" }} />
+                  <span>Press Select on Remote to Open TV Applications</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ═══════════════ STATE 3: CHECKOUT DAY ═══════════════ */}
-          {screenState === "CHECKOUT_DAY" && (
+          {/* ═══════════════ SCREENSAVER STATE 3: CHECKOUT THANK YOU (Stay Completed / Departure) ═══════════════ */}
+          {screenState === "CHECKOUT_THANKYOU" && (
             <div
               style={{
                 position: "relative",
@@ -708,6 +929,7 @@ export default function TvPreviewPage() {
                 boxSizing: "border-box",
               }}
             >
+              {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <span
@@ -721,65 +943,83 @@ export default function TvPreviewPage() {
                       border: "1px solid rgba(245, 158, 11, 0.3)",
                     }}
                   >
-                    DEPARTURE TODAY
+                    CHECKOUT COMPLETE
                   </span>
-                  <h1 style={{ fontSize: "2.75rem", fontWeight: 900, color: "#ffffff", margin: "0.5rem 0 0 0" }}>
-                    Checkout Today by {checkoutTime}
+                  <h1 style={{ fontSize: "2.5rem", fontWeight: 900, color: "#ffffff", margin: "0.5rem 0 0 0" }}>
+                    Thank You for Staying with Us!
                   </h1>
                   <p style={{ fontSize: "0.875rem", color: "#cbd5e1", margin: "0.25rem 0 0 0" }}>
-                    Thank you for staying with us at {hotelName}.
+                    We hope you had a pleasant stay at {hotelName}.
                   </p>
                 </div>
 
                 <div style={{ textAlign: "right" }}>
-                  <p style={{ fontSize: "1.875rem", fontWeight: 700, margin: 0 }}>{currentTime || "10:30 AM"}</p>
-                  <p style={{ fontSize: "0.75rem", color: "#fbbf24", fontWeight: 600, margin: 0 }}>Checkout by {checkoutTime}</p>
+                  <p style={{ fontSize: "1.75rem", fontWeight: 700, margin: 0 }}>{currentTime || "11:00 AM"}</p>
+                  <p style={{ fontSize: "0.75rem", color: "#fbbf24", fontWeight: 600, margin: 0 }}>Room {roomNumber} • Departure</p>
                 </div>
               </div>
 
-              {/* Numbered Checkout Instructions */}
+              {/* Numbered Departure Checklist Card */}
               <div
                 style={{
                   margin: "auto 0",
-                  maxWidth: "42rem",
+                  maxWidth: "46rem",
+                  width: "100%",
                   borderRadius: "1rem",
                   border: "1px solid rgba(255, 255, 255, 0.1)",
                   backgroundColor: "rgba(255, 255, 255, 0.05)",
                   padding: "1.5rem",
                   backdropFilter: "blur(12px)",
+                  boxSizing: "border-box",
                 }}
               >
                 <p style={{ fontSize: "0.75rem", fontWeight: 700, color: "#a5b4fc", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 1rem 0" }}>
-                  Departure Steps
+                  Departure Reminders
                 </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.8125rem" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.875rem" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                     <span style={{ display: "flex", height: "1.5rem", width: "1.5rem", alignItems: "center", justifyContent: "center", borderRadius: "9999px", backgroundColor: "#4f46e5", fontSize: "0.75rem", fontWeight: 700, flexShrink: 0 }}>
                       1
                     </span>
-                    <span>Please check the room and safe for all personal belongings.</span>
+                    <span>Please check the room and safe for all personal belongings and chargers.</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                     <span style={{ display: "flex", height: "1.5rem", width: "1.5rem", alignItems: "center", justifyContent: "center", borderRadius: "9999px", backgroundColor: "#4f46e5", fontSize: "0.75rem", fontWeight: 700, flexShrink: 0 }}>
                       2
                     </span>
-                    <span>Switch off the air conditioner and room lights.</span>
+                    <span>Switch off the air conditioner, lights, and ensure faucets are closed.</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                     <span style={{ display: "flex", height: "1.5rem", width: "1.5rem", alignItems: "center", justifyContent: "center", borderRadius: "9999px", backgroundColor: "#4f46e5", fontSize: "0.75rem", fontWeight: 700, flexShrink: 0 }}>
                       3
                     </span>
-                    <span>Leave key cards at the reception desk or front desk box.</span>
+                    <span>Hand over your room key card at the front desk / reception box.</span>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                    <span style={{ display: "flex", height: "1.5rem", width: "1.5rem", alignItems: "center", justifyContent: "center", borderRadius: "9999px", backgroundColor: "#4f46e5", fontSize: "0.75rem", fontWeight: 700, flexShrink: 0 }}>
-                      4
-                    </span>
-                    <span>Front desk staff will assist with luggage and airport transfer.</span>
+                </div>
+
+                <div style={{ marginTop: "1.25rem", paddingTop: "1rem", borderTop: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.75rem", color: "#cbd5e1" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <PhoneCall style={{ width: "0.875rem", height: "0.875rem", color: "#818cf8" }} />
+                    <span>Need luggage or airport transfer assistance? Reception: {conciergePhone}</span>
                   </div>
+                  <button
+                    onClick={() => setScreenState("WELCOME_HOTEL")}
+                    style={{
+                      border: "1px solid rgba(255, 255, 255, 0.2)",
+                      backgroundColor: "rgba(255, 255, 255, 0.1)",
+                      color: "#ffffff",
+                      borderRadius: "0.5rem",
+                      padding: "0.25rem 0.625rem",
+                      fontSize: "0.6875rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Return to Welcome Screen
+                  </button>
                 </div>
               </div>
 
+              {/* Bottom Footer */}
               <div
                 style={{
                   display: "flex",
@@ -791,49 +1031,15 @@ export default function TvPreviewPage() {
                   color: "#94a3b8",
                 }}
               >
-                <p style={{ margin: 0 }}>Need luggage assistance or late checkout? Call Front Desk ({conciergePhone})</p>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    borderRadius: "0.75rem",
-                    backgroundColor: "#ffffff",
-                    padding: "0.375rem 0.875rem",
-                    fontWeight: 700,
-                    color: "#0f172a",
-                  }}
-                >
-                  <Play style={{ width: "0.875rem", height: "0.875rem", fill: "#4f46e5", color: "#4f46e5" }} />
-                  <span>Open TV & Entertainment</span>
-                </div>
+                <p style={{ margin: 0 }}>SmartStay TV • Safe Travels &amp; Have a Wonderful Journey</p>
+                <span style={{ color: "rgba(255, 255, 255, 0.4)" }}>
+                  Reverting to Hotel Welcome Screen when room is prepared
+                </span>
               </div>
             </div>
           )}
 
-          {/* ═══════════════ STATE 4: SCREENSAVER ═══════════════ */}
-          {screenState === "SCREENSAVER" && (
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                height: "100%",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "3rem",
-                boxSizing: "border-box",
-              }}
-            >
-              <div style={{ textAlign: "center" }}>
-                <p style={{ fontSize: "4.5rem", fontWeight: 900, color: "rgba(255, 255, 255, 0.9)", margin: 0 }}>{currentTime || "10:30 AM"}</p>
-                <p style={{ fontSize: "1.25rem", fontWeight: 500, color: "#a5b4fc", margin: "0.5rem 0 0 0" }}>{hotelName}</p>
-                <p style={{ fontSize: "0.875rem", color: "#64748b", margin: "0.25rem 0 0 0" }}>Room {roomNumber}</p>
-                <p style={{ fontSize: "0.75rem", color: "#475569", margin: "2rem 0 0 0" }}>Press any key on TV remote to wake screen</p>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════════════ STATE 5: PAIRING MODE ═══════════════ */}
+          {/* ═══════════════ PAIRING SCREEN (First Time Boot Only) ═══════════════ */}
           {screenState === "PAIRING" && (
             <div
               style={{
@@ -866,7 +1072,7 @@ export default function TvPreviewPage() {
 
               <h2 style={{ fontSize: "1.875rem", fontWeight: 900, color: "#ffffff", margin: "1rem 0 0 0" }}>Connect This TV to {hotelName}</h2>
               <p style={{ fontSize: "0.875rem", color: "#94a3b8", margin: "0.25rem 0 0 0", maxWidth: "28rem" }}>
-                Enter this code in your SmartStay hotel dashboard to connect this TV:
+                Enter this 6-digit code in your hotel dashboard under Rooms &gt; Pair TV. Once paired, the TV permanently links to this room:
               </p>
 
               {/* 6-character Code Card */}
@@ -903,7 +1109,7 @@ export default function TvPreviewPage() {
               </div>
 
               <p style={{ fontSize: "0.75rem", color: "#64748b", margin: 0 }}>
-                Room {roomNumber} • Dynamic secure pairing
+                Room {roomNumber} • Persistent one-to-one assignment
               </p>
             </div>
           )}

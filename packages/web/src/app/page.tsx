@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { io, Socket } from "socket.io-client";
@@ -79,14 +79,9 @@ export default function DashboardPage() {
     phone: string;
     email: string;
     roomId: string;
-    checkoutPolicy:
-      | "FIXED_11AM"
-      | "HOURLY_3H"
-      | "HOURLY_6H"
-      | "HOURLY_9H"
-      | "HOURLY_12H"
-      | "CUSTOM";
+    checkoutPolicy: "FIXED_11AM" | "HOURLY" | "CUSTOM";
     nights: number;
+    hourlyHours: number;
     customCheckout: string;
     specialRequests: string;
   }>({
@@ -96,6 +91,7 @@ export default function DashboardPage() {
     roomId: "",
     checkoutPolicy: "FIXED_11AM",
     nights: 1,
+    hourlyHours: 6,
     customCheckout: "",
     specialRequests: "",
   });
@@ -118,6 +114,7 @@ export default function DashboardPage() {
         return null;
       }
     },
+    placeholderData: (prev) => prev,
   });
 
   // 2. Rooms Query
@@ -135,6 +132,7 @@ export default function DashboardPage() {
         return [];
       }
     },
+    placeholderData: (prev) => prev,
   });
 
   // 3. Activity Query
@@ -151,6 +149,7 @@ export default function DashboardPage() {
         return [];
       }
     },
+    placeholderData: (prev) => prev,
   });
 
   // Room Deletion State
@@ -303,6 +302,7 @@ export default function DashboardPage() {
       roomId: "",
       checkoutPolicy: "FIXED_11AM",
       nights: 1,
+      hourlyHours: 6,
       customCheckout: "",
       specialRequests: "",
     });
@@ -328,39 +328,48 @@ export default function DashboardPage() {
     setCheckoutModalOpen(true);
   };
 
-  // Calculations for Stats
-  const totalRoomsCount = stats?.totalRooms ?? rooms.length;
-  const occupiedCount =
-    stats?.occupiedRooms ??
-    rooms.filter((r) => r.status.toUpperCase() === "OCCUPIED").length;
-  const availableCount =
-    stats?.availableRooms ??
-    rooms.filter((r) => r.status.toUpperCase() === "AVAILABLE").length;
-  const occupancyRate =
-    stats?.occupancyRate ??
-    (totalRoomsCount > 0 ? Math.round((occupiedCount / totalRoomsCount) * 100) : 0);
-  const onlineTvs =
-    stats?.onlineTvs ??
-    rooms.filter((r) => r.device?.status?.toUpperCase() === "ONLINE").length;
+  // Memoized calculations for Stats
+  const totalRoomsCount = useMemo(() => stats?.totalRooms ?? rooms.length, [stats?.totalRooms, rooms.length]);
+  const occupiedCount = useMemo(
+    () => stats?.occupiedRooms ?? rooms.filter((r) => r.status?.toUpperCase() === "OCCUPIED").length,
+    [stats?.occupiedRooms, rooms]
+  );
+  const availableCount = useMemo(
+    () => stats?.availableRooms ?? rooms.filter((r) => r.status?.toUpperCase() === "AVAILABLE").length,
+    [stats?.availableRooms, rooms]
+  );
+  const occupancyRate = useMemo(
+    () => stats?.occupancyRate ?? (totalRoomsCount > 0 ? Math.round((occupiedCount / totalRoomsCount) * 100) : 0),
+    [stats?.occupancyRate, totalRoomsCount, occupiedCount]
+  );
+  const onlineTvs = useMemo(
+    () => stats?.onlineTvs ?? rooms.filter((r) => r.device?.status?.toUpperCase() === "ONLINE").length,
+    [stats?.onlineTvs, rooms]
+  );
 
-  // Filtered rooms
-  const filteredRooms = rooms.filter((room) => {
-    if (filterFloor !== "ALL" && room.floor !== filterFloor) return false;
-    if (filterStatus !== "ALL" && room.status.toUpperCase() !== filterStatus) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const numMatch = room.number.toLowerCase().includes(q);
-      const guestName = room.currentGuest
-        ? `${room.currentGuest.firstName || ""} ${room.currentGuest.lastName || ""} ${room.currentGuest.name || ""}`.toLowerCase()
-        : "";
-      const guestMatch = guestName.includes(q);
-      const typeMatch = room.type?.toLowerCase().includes(q);
-      return numMatch || guestMatch || typeMatch;
-    }
-    return true;
-  });
+  // Memoized Filtered rooms
+  const filteredRooms = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return rooms.filter((room) => {
+      if (filterFloor !== "ALL" && room.floor !== filterFloor) return false;
+      if (filterStatus !== "ALL" && (room.status || "").toUpperCase() !== filterStatus) return false;
+      if (q) {
+        const numMatch = (room.number || room.roomNumber || "").toLowerCase().includes(q);
+        const guestName = room.currentGuest
+          ? `${room.currentGuest.firstName || ""} ${room.currentGuest.lastName || ""} ${room.currentGuest.name || ""}`.toLowerCase()
+          : "";
+        const guestMatch = guestName.includes(q);
+        const typeMatch = (room.type || "").toLowerCase().includes(q);
+        return numMatch || guestMatch || typeMatch;
+      }
+      return true;
+    });
+  }, [rooms, filterFloor, filterStatus, searchQuery]);
 
-  const floors = Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
+  // Memoized unique floors
+  const floors = useMemo(() => {
+    return Array.from(new Set(rooms.map((r) => r.floor))).sort((a, b) => a - b);
+  }, [rooms]);
 
   return (
     <DashboardLayout>
@@ -598,11 +607,11 @@ export default function DashboardPage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-2xl font-black tracking-tight text-slate-900">
-                            {room.number}
+                          <span className="text-xl md:text-2xl font-black tracking-tight text-slate-900">
+                            Room {room.number || room.roomNumber}
                           </span>
-                          <span className="text-[11px] font-semibold text-slate-400">
-                            Fl {room.floor}
+                          <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                            Floor {room.floor}
                           </span>
                         </div>
                         <span className="text-[11px] text-slate-500 font-medium block">
@@ -796,16 +805,59 @@ export default function DashboardPage() {
                   return;
                 }
 
-                checkInMutation.mutate({
-                  guestName: checkInForm.guestName,
-                  phone: checkInForm.phone,
-                  email: checkInForm.email,
-                  roomId: checkInForm.roomId,
-                  checkoutPolicy: checkInForm.checkoutPolicy,
-                  nights: checkInForm.nights,
-                  checkOut: checkInForm.customCheckout,
-                  specialRequests: checkInForm.specialRequests,
-                });
+                if (checkInForm.checkoutPolicy === "HOURLY") {
+                  const hours = Math.max(1, checkInForm.hourlyHours || 6);
+                  const calculatedOut = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+                  checkInMutation.mutate({
+                    guestName: checkInForm.guestName,
+                    phone: checkInForm.phone,
+                    email: checkInForm.email,
+                    roomId: checkInForm.roomId,
+                    checkoutPolicy: "HOURLY",
+                    nights: 1,
+                    hours: hours,
+                    checkOut: calculatedOut,
+                    specialRequests: checkInForm.specialRequests,
+                    forceCheckIn: true,
+                  });
+                } else if (checkInForm.checkoutPolicy === "CUSTOM") {
+                  if (!checkInForm.customCheckout) {
+                    toast.error("Please specify a custom checkout date & time");
+                    return;
+                  }
+                  const customDate = new Date(checkInForm.customCheckout);
+                  if (isNaN(customDate.getTime()) || customDate.getTime() <= Date.now()) {
+                    toast.error("Custom checkout time must be in the future");
+                    return;
+                  }
+                  checkInMutation.mutate({
+                    guestName: checkInForm.guestName,
+                    phone: checkInForm.phone,
+                    email: checkInForm.email,
+                    roomId: checkInForm.roomId,
+                    checkoutPolicy: "CUSTOM",
+                    nights: Math.max(1, Math.round((customDate.getTime() - Date.now()) / (24 * 3600 * 1000))),
+                    checkOut: customDate.toISOString(),
+                    specialRequests: checkInForm.specialRequests,
+                    forceCheckIn: true,
+                  });
+                } else {
+                  // FIXED_11AM
+                  const targetCheckout = new Date();
+                  targetCheckout.setDate(targetCheckout.getDate() + (checkInForm.nights || 1));
+                  targetCheckout.setHours(11, 0, 0, 0);
+                  checkInMutation.mutate({
+                    guestName: checkInForm.guestName,
+                    phone: checkInForm.phone,
+                    email: checkInForm.email,
+                    roomId: checkInForm.roomId,
+                    checkoutPolicy: "FIXED_11AM",
+                    nights: checkInForm.nights || 1,
+                    checkOut: targetCheckout.toISOString(),
+                    specialRequests: checkInForm.specialRequests,
+                    forceCheckIn: true,
+                  });
+                }
               }}
               className="mt-4 space-y-4"
             >
@@ -824,11 +876,13 @@ export default function DashboardPage() {
                   className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 >
                   <option value="">Select an available room</option>
-                  {rooms.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      Room {r.number} (Floor {r.floor}) — {r.type} [{r.status}]
-                    </option>
-                  ))}
+                  {rooms
+                    .filter((r) => (r.status || "").toUpperCase() !== "OCCUPIED")
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Room {r.number || r.roomNumber} (Floor {r.floor}) • {r.type || "Standard Room"}
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -898,7 +952,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { id: "FIXED_11AM", label: "Fixed 11 AM" },
-                    { id: "HOURLY_6H", label: "Hourly (6h)" },
+                    { id: "HOURLY", label: "Hourly Stay" },
                     { id: "CUSTOM", label: "Custom Time" },
                   ].map((pol) => (
                     <button
@@ -910,7 +964,7 @@ export default function DashboardPage() {
                           checkoutPolicy: pol.id as any,
                         }))
                       }
-                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-center ${
+                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-center cursor-pointer ${
                         checkInForm.checkoutPolicy === pol.id
                           ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                           : "border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -940,13 +994,87 @@ export default function DashboardPage() {
                     }
                     className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   />
+                  <div className="text-[11px] text-indigo-700 font-medium bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 mt-2 flex items-center justify-between">
+                    <span>Checkout:</span>
+                    <span className="font-bold">
+                      {(() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + (checkInForm.nights || 1));
+                        return `${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at 11:00 AM`;
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {checkInForm.checkoutPolicy === "HOURLY" && (
+                <div className="space-y-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">
+                      Stay Duration (Hours)
+                    </label>
+                    <span className="text-xs font-semibold text-indigo-600">
+                      {checkInForm.hourlyHours} hours
+                    </span>
+                  </div>
+
+                  {/* Preset quick chips */}
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[2, 3, 4, 6, 12].map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setCheckInForm((prev) => ({ ...prev, hourlyHours: h }))}
+                        className={`py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+                          checkInForm.hourlyHours === h
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        {h}h
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom hours input */}
+                  <div>
+                    <label className="block text-[11px] text-slate-500 mb-1">
+                      Or customize duration in hours:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={72}
+                      value={checkInForm.hourlyHours}
+                      onChange={(e) =>
+                        setCheckInForm((prev) => ({
+                          ...prev,
+                          hourlyHours: Math.max(1, parseInt(e.target.value) || 1),
+                        }))
+                      }
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+
+                  {/* Calculated checkout live preview */}
+                  <div className="text-[11px] text-indigo-700 font-medium bg-indigo-50/70 p-2 rounded-lg border border-indigo-100 flex items-center justify-between">
+                    <span>Expected Checkout:</span>
+                    <span className="font-bold">
+                      {new Date(Date.now() + (checkInForm.hourlyHours || 6) * 3600 * 1000).toLocaleString([], {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
                 </div>
               )}
 
               {checkInForm.checkoutPolicy === "CUSTOM" && (
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                    Custom Checkout Date & Time
+                <div className="space-y-2 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Custom Checkout Date &amp; Time
                   </label>
                   <input
                     type="datetime-local"
@@ -957,8 +1085,11 @@ export default function DashboardPage() {
                         customCheckout: e.target.value,
                       }))
                     }
-                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   />
+                  <span className="text-[11px] text-slate-500 block">
+                    Choose any future date and time for departure.
+                  </span>
                 </div>
               )}
 

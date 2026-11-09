@@ -50,6 +50,7 @@ export default function WifiPage() {
 
   const { data: serverZones, isLoading, refetch } = useQuery({
     queryKey: ["wifi-zones"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         const data = await wifiApi.getAll();

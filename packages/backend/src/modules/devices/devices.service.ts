@@ -4,7 +4,7 @@ import { prisma } from '../../config/database';
 import { env } from '../../config/env';
 import { redis } from '../../config/redis';
 import { AppError, NotFoundError, ConflictError } from '../../core/errors';
-import { emitToHotel, emitToDevice, SOCKET_EVENTS } from '../../core/realtime/socket';
+import { emitToHotel, emitToDevice, emitToDeviceWithAck, SOCKET_EVENTS } from '../../core/realtime/socket';
 import jwt from 'jsonwebtoken';
 import { DeviceStatus, TvScreenState } from '@prisma/client';
 import { decryptPassword } from '../../utils/crypto';
@@ -36,6 +36,15 @@ export class DevicesService {
 
     const expiry = new Date(Date.now() + env.PAIRING_CODE_EXPIRY_MINUTES * 60 * 1000);
 
+    const mappedDeviceInfo = {
+      deviceModel: deviceInfo?.model || (deviceInfo as any)?.deviceModel,
+      deviceBrand: deviceInfo?.brand || (deviceInfo as any)?.deviceBrand,
+      osVersion: deviceInfo?.osVersion,
+      appVersion: deviceInfo?.appVersion,
+      screenWidth: deviceInfo?.screenWidth,
+      screenHeight: deviceInfo?.screenHeight,
+    };
+
     // Find or create device record
     let device = await prisma.tvDevice.findUnique({ where: { deviceId } });
 
@@ -47,7 +56,7 @@ export class DevicesService {
           screenState: 'PAIRING',
           pairingCode: code,
           pairingExpiry: expiry,
-          ...deviceInfo,
+          ...mappedDeviceInfo,
           // Temporary hotel assignment — will be set during pairing
           hotel: { connect: { id: await this.getDefaultHotelId() } },
         },
@@ -60,7 +69,7 @@ export class DevicesService {
           screenState: 'PAIRING',
           pairingCode: code,
           pairingExpiry: expiry,
-          ...deviceInfo,
+          ...mappedDeviceInfo,
         },
       });
     }
@@ -110,62 +119,8 @@ export class DevicesService {
       }
     }
 
-    // 3. Fallback for TV screen / simulator codes (e.g. 482193 or any valid 6-digit code)
-    if (!deviceDbId && (/^\d{6}$/.test(cleanCode) || cleanCode.length >= 6)) {
-      // Find existing simulator or virtual TV device with this code or deviceId
-      let dev = await prisma.tvDevice.findFirst({
-        where: {
-          OR: [
-            { pairingCode: cleanCode },
-            { deviceId: `TV-SMART-${cleanCode}` },
-          ],
-          deletedAt: null,
-        },
-      });
-
-      const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-
-      if (!dev) {
-        const hotelId = await this.getDefaultHotelId();
-        dev = await prisma.tvDevice.create({
-          data: {
-            deviceId: `TV-SMART-${cleanCode}`,
-            name: `SmartStay Android TV (${cleanCode})`,
-            deviceBrand: 'SmartStay TV',
-            deviceModel: 'Android TV 4K',
-            osVersion: 'Android TV 12',
-            appVersion: '1.0.0',
-            status: 'PAIRING',
-            screenState: 'PAIRING',
-            pairingCode: cleanCode,
-            pairingExpiry: expiry,
-            hotelId,
-          },
-        });
-      } else {
-        dev = await prisma.tvDevice.update({
-          where: { id: dev.id },
-          data: {
-            pairingCode: cleanCode,
-            pairingExpiry: expiry,
-            status: 'PAIRING',
-          },
-        });
-      }
-
-      deviceDbId = dev.id;
-      hardwareId = dev.deviceId;
-
-      // Cache in Redis for instant subsequent lookups
-      await redis.setex(
-        `${PAIRING_KEY_PREFIX}${cleanCode}`,
-        86400,
-        JSON.stringify({ deviceDbId: dev.id, deviceId: dev.deviceId })
-      );
-    }
-
     if (!deviceDbId) {
-      throw new AppError('Invalid or expired TV pairing code. Please verify the 6-digit code on the TV screen.', 400, 'PAIRING_CODE_INVALID');
+      throw new AppError('Invalid or expired TV pairing code. No TV display found with this code. Please check the TV screen.', 400, 'PAIRING_CODE_INVALID');
     }
 
     const device = await prisma.tvDevice.findUnique({
@@ -214,10 +169,7 @@ export class DevicesService {
     if (!deviceDbId) {
       const dbDev = await prisma.tvDevice.findFirst({
         where: {
-          OR: [
-            { pairingCode: cleanCode },
-            { deviceId: `TV-SMART-${cleanCode}` },
-          ],
+          pairingCode: cleanCode,
           deletedAt: null,
         },
       });
@@ -254,9 +206,13 @@ export class DevicesService {
       throw new ConflictError('This room already has a TV connected. Unlink the existing TV first.');
     }
 
-    // Generate device token
+    // Generate device token containing both hardwareId (deviceId) and database UUID (dbId)
     const deviceToken = jwt.sign(
-      { deviceId: deviceDbId, hotelId },
+      {
+        deviceId: device.deviceId,
+        dbId: deviceDbId,
+        hotelId,
+      },
       env.DEVICE_TOKEN_SECRET,
       { expiresIn: env.DEVICE_TOKEN_EXPIRES_IN as any }
     );
@@ -309,12 +265,18 @@ export class DevicesService {
     // Remove pairing code from Redis
     await redis.del(`${PAIRING_KEY_PREFIX}${cleanCode}`);
 
-    // Send pairing confirmation to TV via WebSocket
-    emitToDevice(deviceDbId, SOCKET_EVENTS.DEVICE_PAIRED, {
+    // Send pairing confirmation to TV via WebSocket across all identifier channels
+    const pairPayload = {
       deviceToken,
       hotel: updatedDevice.hotel,
       room: updatedDevice.room,
-    });
+    };
+    emitToDevice(deviceDbId, SOCKET_EVENTS.DEVICE_PAIRED, pairPayload);
+    emitToDevice(deviceDbId, 'DEVICE_PAIRED', pairPayload);
+    if (device.deviceId && device.deviceId !== deviceDbId) {
+      emitToDevice(device.deviceId, SOCKET_EVENTS.DEVICE_PAIRED, pairPayload);
+      emitToDevice(device.deviceId, 'DEVICE_PAIRED', pairPayload);
+    }
 
     // Notify hotel dashboard
     emitToHotel(hotelId, SOCKET_EVENTS.DEVICE_PAIRED, {
@@ -327,7 +289,7 @@ export class DevicesService {
 
   // ─── Get hotel's TV devices ────────────────────────────
   async getHotelDevices(hotelId: string) {
-    return prisma.tvDevice.findMany({
+    const devices = await prisma.tvDevice.findMany({
       where: { hotelId, deletedAt: null },
       include: {
         room: true,
@@ -338,12 +300,30 @@ export class DevicesService {
       },
       orderBy: [{ isOnline: 'desc' }, { createdAt: 'asc' }],
     });
+
+    const now = Date.now();
+    return devices.map((d) => {
+      const lastSeenMs = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() : 0;
+      const isRecentlySeen = (now - lastSeenMs) < 90000; // heartbeat within 90s
+      const isRecentlyPaired = d.pairedAt ? (now - new Date(d.pairedAt).getTime()) < 120000 : false;
+      const computedOnline = Boolean((d.isOnline && isRecentlySeen) || isRecentlyPaired);
+
+      return {
+        ...d,
+        isOnline: computedOnline,
+        status: computedOnline ? 'ONLINE' : (d.status === 'PAIRED' ? 'OFFLINE' : d.status),
+      };
+    });
   }
 
   // ─── Get single device ─────────────────────────────────
   async getDevice(hotelId: string, deviceId: string) {
     const device = await prisma.tvDevice.findFirst({
-      where: { id: deviceId, hotelId, deletedAt: null },
+      where: {
+        OR: [{ id: deviceId }, { deviceId }],
+        hotelId,
+        deletedAt: null,
+      },
       include: {
         room: { include: { currentBooking: { include: { guest: true } } } },
         heartbeats: {
@@ -353,7 +333,117 @@ export class DevicesService {
       },
     });
     if (!device) throw new NotFoundError('TV device', deviceId);
-    return device;
+
+    const now = Date.now();
+    const lastSeenMs = device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
+    const isRecentlySeen = (now - lastSeenMs) < 90000;
+    const isRecentlyPaired = device.pairedAt ? (now - new Date(device.pairedAt).getTime()) < 120000 : false;
+    const computedOnline = Boolean((device.isOnline && isRecentlySeen) || isRecentlyPaired);
+
+    return {
+      ...device,
+      isOnline: computedOnline,
+      status: computedOnline ? 'ONLINE' : (device.status === 'PAIRED' ? 'OFFLINE' : device.status),
+    };
+  }
+
+  // ─── Send Remote Command with Mandatory ACK ──────────
+  async sendCommand(hotelId: string, deviceId: string, command: string, payload?: any) {
+    const device = await prisma.tvDevice.findFirst({
+      where: { id: deviceId, hotelId, deletedAt: null },
+      include: { room: true },
+    });
+    if (!device) throw new NotFoundError('TV device', deviceId);
+
+    const validCommands = [
+      'REFRESH_SCREEN',
+      'UPDATE_ROOM',
+      'REFRESH_WIFI',
+      'SEND_MESSAGE',
+      'CHECKOUT_REMINDER',
+      'CHECKOUT_NOTIFY',
+      'CLEAR_GUEST',
+    ];
+    if (!validCommands.includes(command)) {
+      throw new AppError(`Invalid remote command: ${command}. Valid commands: ${validCommands.join(', ')}`, 400);
+    }
+
+    // Try primary room (database UUID)
+    let ackResult = await emitToDeviceWithAck(device.id, SOCKET_EVENTS.DEVICE_COMMAND, {
+      command,
+      payload,
+      deviceId: device.id,
+      hardwareId: device.deviceId,
+      roomNumber: device.room?.roomNumber,
+      timestamp: new Date().toISOString(),
+    }, 5000);
+
+    // If no socket in primary room, try hardwareId room
+    if (!ackResult.acknowledged && device.deviceId && device.deviceId !== device.id) {
+      ackResult = await emitToDeviceWithAck(device.deviceId, SOCKET_EVENTS.DEVICE_COMMAND, {
+        command,
+        payload,
+        deviceId: device.id,
+        hardwareId: device.deviceId,
+        roomNumber: device.room?.roomNumber,
+        timestamp: new Date().toISOString(),
+      }, 5000);
+    }
+
+    if (!ackResult.acknowledged) {
+      throw new AppError(ackResult.error || `TV device did not acknowledge command '${command}'`, 504, 'DEVICE_ACK_TIMEOUT');
+    }
+
+    return {
+      success: true,
+      command,
+      acknowledged: true,
+      ackData: ackResult.ackData,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // ─── Connection & Fleet Diagnostics ──────────────────
+  async getDiagnostics() {
+    let dbStatus = 'CONNECTED';
+    let redisStatus = 'CONNECTED';
+
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch {
+      dbStatus = 'DISCONNECTED';
+    }
+
+    try {
+      await redis.ping();
+    } catch {
+      redisStatus = 'DISCONNECTED';
+    }
+
+    const devices = await prisma.tvDevice.findMany({
+      where: { deletedAt: null },
+      select: { id: true, isOnline: true, lastSeenAt: true, pairedAt: true, status: true },
+    });
+
+    const now = Date.now();
+    const onlineCount = devices.filter((d) => {
+      const lastSeenMs = d.lastSeenAt ? new Date(d.lastSeenAt).getTime() : 0;
+      return (now - lastSeenMs) < 90000 || (d.pairedAt && (now - new Date(d.pairedAt).getTime()) < 120000);
+    }).length;
+
+    return {
+      backendReachable: true,
+      serverTime: new Date().toISOString(),
+      lanIp: '192.168.29.219',
+      port: env.PORT,
+      database: dbStatus,
+      redis: redisStatus,
+      fleet: {
+        totalDevices: devices.length,
+        onlineDevices: onlineCount,
+        offlineDevices: devices.length - onlineCount,
+      },
+    };
   }
 
   // ─── Refresh device (push current state) ──────────────
@@ -412,7 +502,7 @@ export class DevicesService {
   }
 
   // ─── Move device to another room ──────────────────────
-  async moveDevice(hotelId: string, deviceId: string, newRoomId: string, userId: string) {
+  async moveDevice(hotelId: string, deviceId: string, newRoomId: string, userId?: string) {
     const device = await this.getDevice(hotelId, deviceId);
 
     // Verify new room
@@ -425,7 +515,7 @@ export class DevicesService {
     const existing = await prisma.tvDevice.findFirst({
       where: { roomId: newRoomId, deletedAt: null },
     });
-    if (existing && existing.id !== deviceId) {
+    if (existing && existing.id !== device.id) {
       throw new ConflictError('Target room already has a TV');
     }
 
@@ -436,17 +526,21 @@ export class DevicesService {
         include: { room: true },
       });
 
-      await tx.auditLog.create({
-        data: {
-          hotelId,
-          userId,
-          action: 'DEVICE_MOVED',
-          resource: 'tv_device',
-          resourceId: device.id,
-          details: { from: device.roomId, to: newRoomId },
-          success: true,
-        },
-      });
+      try {
+        await tx.auditLog.create({
+          data: {
+            hotelId,
+            userId: userId || null,
+            action: 'DEVICE_MOVED',
+            resource: 'tv_device',
+            resourceId: device.id,
+            details: { from: device.roomId, to: newRoomId },
+            success: true,
+          },
+        });
+      } catch (e) {
+        console.warn('AuditLog warning during moveDevice:', e);
+      }
 
       return d;
     });
@@ -454,6 +548,9 @@ export class DevicesService {
     // Push updated room info to TV
     const payload = await this.getHotelTvPayload(hotelId, newRoomId);
     emitToDevice(device.id, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+    if (device.deviceId && device.deviceId !== device.id) {
+      emitToDevice(device.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+    }
 
     return updated;
   }
@@ -484,6 +581,7 @@ export class DevicesService {
       include: {
         settings: true,
         wifiSettings: true,
+        screensaverConfig: true,
         wifiZones: {
           where: { isActive: true },
           orderBy: { createdAt: 'desc' },
@@ -520,22 +618,40 @@ export class DevicesService {
     if (!hotel) throw new NotFoundError('Hotel', hotelId);
 
     let room: any = null;
+    let activeGuest: any = null;
     if (roomId) {
       room = await prisma.room.findFirst({
-        where: { id: roomId, hotelId },
+        where: { id: roomId, hotelId, deletedAt: null },
         include: { wifiZone: true },
       });
+      if (room?.currentBookingId) {
+        const booking = await prisma.booking.findUnique({
+          where: { id: room.currentBookingId },
+          include: { guest: true },
+        });
+        if (booking && booking.status === 'CHECKED_IN') {
+          activeGuest = {
+            id: booking.guest.id,
+            name: `${booking.guest.firstName} ${booking.guest.lastName}`.trim(),
+            firstName: booking.guest.firstName,
+            checkIn: booking.checkInDate,
+            checkOut: booking.checkOutDate,
+            checkoutTime: hotel.settings?.checkOutTime || '11:00 AM',
+          };
+        }
+      }
     }
 
     // ─── Wi-Fi Matching Logic ───────────────────────
     let wifiPayload: {
       networkName: string;
       securityType: string;
+      password?: string;
       qrCodeUrl?: string | null;
-      qrString?: string;
+      qrString?: string | null;
       isCustomZone?: boolean;
-      status: 'MATCHED' | 'NOT_FOUND' | 'DEFAULT_FALLBACK';
-      matchedSsid?: string;
+      status: 'MATCHED' | 'NOT_FOUND' | 'ROOM_ZONE' | 'CONNECTED_UNMATCHED';
+      matchedSsid?: string | null;
       message?: string;
     } | null = null;
 
@@ -545,12 +661,13 @@ export class DevicesService {
       // 1. Try matching room's assigned wifiZone first
       if (room?.wifiZone && room.wifiZone.isActive && room.wifiZone.ssid.toLowerCase() === cleanConnectedSsid.toLowerCase()) {
         const password = this.getDecryptedZonePassword(room.wifiZone);
-        const qrString = buildWifiQrString(room.wifiZone.ssid, password, room.wifiZone.securityType, room.wifiZone.isHidden);
+        const qrString = buildWifiQrString(cleanConnectedSsid, password, room.wifiZone.securityType, room.wifiZone.isHidden);
         let qrCodeUrl: string | null = null;
         try { qrCodeUrl = await QRCode.toDataURL(qrString); } catch {}
         wifiPayload = {
-          networkName: room.wifiZone.ssid,
+          networkName: cleanConnectedSsid,
           securityType: room.wifiZone.securityType,
+          password: password || '',
           qrCodeUrl,
           qrString,
           isCustomZone: true,
@@ -561,23 +678,23 @@ export class DevicesService {
 
       // 2. Try matching any of the hotel's configured wifiZones
       if (!wifiPayload && hotel.wifiZones && hotel.wifiZones.length > 0) {
-        // Handle duplicate SSIDs: if multiple zones have same SSID, prefer zone on same floor as room
         let matchedZone = hotel.wifiZones.find(z => 
-          z.ssid.toLowerCase() === cleanConnectedSsid.toLowerCase() && 
+          z.isActive && z.ssid.toLowerCase() === cleanConnectedSsid.toLowerCase() && 
           room?.floor && z.floorCoverage && z.floorCoverage.includes(String(room.floor))
         );
         if (!matchedZone) {
-          matchedZone = hotel.wifiZones.find(z => z.ssid.toLowerCase() === cleanConnectedSsid.toLowerCase());
+          matchedZone = hotel.wifiZones.find(z => z.isActive && z.ssid.toLowerCase() === cleanConnectedSsid.toLowerCase());
         }
 
         if (matchedZone) {
           const password = this.getDecryptedZonePassword(matchedZone);
-          const qrString = buildWifiQrString(matchedZone.ssid, password, matchedZone.securityType, matchedZone.isHidden);
+          const qrString = buildWifiQrString(cleanConnectedSsid, password, matchedZone.securityType, matchedZone.isHidden);
           let qrCodeUrl: string | null = null;
           try { qrCodeUrl = await QRCode.toDataURL(qrString); } catch {}
           wifiPayload = {
-            networkName: matchedZone.ssid,
+            networkName: cleanConnectedSsid,
             securityType: matchedZone.securityType,
+            password: password || '',
             qrCodeUrl,
             qrString,
             isCustomZone: true,
@@ -590,14 +707,15 @@ export class DevicesService {
       // 3. Try matching hotel default Wi-Fi settings
       if (!wifiPayload && hotel.wifiSettings && hotel.wifiSettings.networkName.toLowerCase() === cleanConnectedSsid.toLowerCase()) {
         const qrString = buildWifiQrString(
-          hotel.wifiSettings.networkName,
+          cleanConnectedSsid,
           hotel.wifiSettings.password,
           hotel.wifiSettings.securityType,
           hotel.wifiSettings.isHidden
         );
         wifiPayload = {
-          networkName: hotel.wifiSettings.networkName,
+          networkName: cleanConnectedSsid,
           securityType: hotel.wifiSettings.securityType,
+          password: hotel.wifiSettings.password || '',
           qrCodeUrl: hotel.wifiSettings.qrCodeUrl,
           qrString,
           isCustomZone: false,
@@ -606,20 +724,25 @@ export class DevicesService {
         };
       }
 
-      // 4. If connected SSID does not match any hotel configuration
+      // 4. Connected SSID does not match any configured zone:
+      // Never display a misleading or unrelated QR code
       if (!wifiPayload) {
         wifiPayload = {
           networkName: cleanConnectedSsid,
-          securityType: 'WPA2',
+          securityType: 'UNKNOWN',
+          password: '',
           qrCodeUrl: null,
-          qrString: '',
-          status: 'NOT_FOUND',
-          message: `Wi-Fi configuration not found for network "${cleanConnectedSsid}". Configure this network in Wi-Fi Management.`,
+          qrString: null,
+          isCustomZone: false,
+          status: 'CONNECTED_UNMATCHED',
+          matchedSsid: null,
+          message: `Connected to ${cleanConnectedSsid} (Unmatched Wi-Fi zone)`,
         };
       }
-    } else {
-      // No connected SSID reported by TV (e.g. Android permissions or Ethernet)
-      // Fallback: room zone or hotel default
+    }
+
+    // If connected SSID not detected (e.g. Ethernet LAN or permission restricted)
+    if (!wifiPayload) {
       if (room?.wifiZone && room.wifiZone.isActive) {
         const password = this.getDecryptedZonePassword(room.wifiZone);
         const qrString = buildWifiQrString(room.wifiZone.ssid, password, room.wifiZone.securityType, room.wifiZone.isHidden);
@@ -628,10 +751,28 @@ export class DevicesService {
         wifiPayload = {
           networkName: room.wifiZone.ssid,
           securityType: room.wifiZone.securityType,
+          password: password || '',
           qrCodeUrl,
           qrString,
           isCustomZone: true,
-          status: 'DEFAULT_FALLBACK',
+          status: 'ROOM_ZONE',
+          matchedSsid: room.wifiZone.ssid,
+        };
+      } else if (hotel.wifiZones && hotel.wifiZones.length > 0) {
+        const activeZone = hotel.wifiZones.find(z => z.isActive) || hotel.wifiZones[0];
+        const password = this.getDecryptedZonePassword(activeZone);
+        const qrString = buildWifiQrString(activeZone.ssid, password, activeZone.securityType, activeZone.isHidden);
+        let qrCodeUrl: string | null = null;
+        try { qrCodeUrl = await QRCode.toDataURL(qrString); } catch {}
+        wifiPayload = {
+          networkName: activeZone.ssid,
+          securityType: activeZone.securityType,
+          password: password || '',
+          qrCodeUrl,
+          qrString,
+          isCustomZone: true,
+          status: 'ROOM_ZONE',
+          matchedSsid: activeZone.ssid,
         };
       } else if (hotel.wifiSettings) {
         const qrString = buildWifiQrString(
@@ -643,10 +784,23 @@ export class DevicesService {
         wifiPayload = {
           networkName: hotel.wifiSettings.networkName,
           securityType: hotel.wifiSettings.securityType,
+          password: hotel.wifiSettings.password || '',
           qrCodeUrl: hotel.wifiSettings.qrCodeUrl,
           qrString,
           isCustomZone: false,
-          status: 'DEFAULT_FALLBACK',
+          status: 'ROOM_ZONE',
+          matchedSsid: hotel.wifiSettings.networkName,
+        };
+      } else {
+        wifiPayload = {
+          networkName: '',
+          securityType: 'OPEN',
+          password: '',
+          qrCodeUrl: null,
+          qrString: null,
+          isCustomZone: false,
+          status: 'NOT_FOUND',
+          message: 'No Wi-Fi zone configured for this hotel',
         };
       }
     }
@@ -661,6 +815,17 @@ export class DevicesService {
       accentColor: hotel.accentColor,
       settings: hotel.settings,
       wifi: wifiPayload,
+      room: room ? {
+        id: room.id,
+        number: room.roomNumber,
+        floor: room.floor,
+        wifiZone: room.wifiZone ? {
+          id: room.wifiZone.id,
+          name: room.wifiZone.name,
+          ssid: room.wifiZone.ssid,
+        } : null,
+      } : null,
+      guest: activeGuest,
       amenities: hotel.amenities.map((a) => ({
         id: a.id,
         name: a.customName || a.amenity?.name,
@@ -670,8 +835,294 @@ export class DevicesService {
       checkoutSteps: hotel.checkoutSteps.map((s) => s.instruction),
       photos: hotel.photos,
       announcements: hotel.announcements,
+      screensaver: hotel.screensaverConfig,
       syncedAt: new Date().toISOString(),
     };
+  }
+
+  // ─── Assign TV to Room (Strict 1-to-1 with atomic replacement) ───
+  async assignDeviceToRoom(
+    hotelId: string,
+    deviceId: string,
+    roomId: string,
+    userId?: string,
+    replaceExisting: boolean = true
+  ) {
+    const device = await prisma.tvDevice.findFirst({
+      where: {
+        OR: [{ id: deviceId }, { deviceId }],
+        hotelId,
+        deletedAt: null,
+      },
+      include: { room: true },
+    });
+    if (!device) throw new NotFoundError('TV device', deviceId);
+
+    const room = await prisma.room.findFirst({
+      where: { id: roomId, hotelId, deletedAt: null },
+      include: { device: true },
+    });
+    if (!room) throw new NotFoundError('Room', roomId);
+
+    let replacedDeviceId: string | null = null;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // 1. If another TV is assigned to this target room
+      const existingTvOnRoom = await tx.tvDevice.findFirst({
+        where: { roomId, deletedAt: null },
+      });
+
+      if (existingTvOnRoom && existingTvOnRoom.id !== device.id) {
+        if (!replaceExisting) {
+          throw new ConflictError(
+            `Room ${room.roomNumber} already has TV '${existingTvOnRoom.name || existingTvOnRoom.deviceId}' assigned. Replace it or unassign first.`
+          );
+        }
+        // Safely unassign previous TV
+        await tx.tvDevice.update({
+          where: { id: existingTvOnRoom.id },
+          data: {
+            roomId: null,
+            status: 'UNPAIRED',
+            screenState: 'UNPAIRED',
+          },
+        });
+        replacedDeviceId = existingTvOnRoom.id;
+      }
+
+      // If device was previously in a different room, clear it
+      if (device.roomId && device.roomId !== roomId) {
+        await tx.tvDevice.update({
+          where: { id: device.id },
+          data: { roomId: null },
+        });
+      }
+
+      // 2. Assign current TV to new room
+      const d = await tx.tvDevice.update({
+        where: { id: device.id },
+        data: {
+          roomId,
+          status: 'PAIRED',
+          screenState: 'DEFAULT_MODE',
+        },
+        include: { room: true },
+      });
+
+      // 3. Audit log (Valid AuditAction enum: DEVICE_MOVED or DEVICE_PAIRED)
+      try {
+        await tx.auditLog.create({
+          data: {
+            hotelId,
+            userId: userId || null,
+            action: device.roomId ? 'DEVICE_MOVED' : 'DEVICE_PAIRED',
+            resource: 'tv_device',
+            resourceId: device.id,
+            details: {
+              roomId,
+              roomNumber: room.roomNumber,
+              replacedDeviceId,
+              previousRoomId: device.roomId,
+            },
+            success: true,
+          },
+        });
+      } catch (e) {
+        console.warn('AuditLog warning during assignDeviceToRoom:', e);
+      }
+
+      return d;
+    });
+
+    // Notify previously assigned TV if replaced
+    if (replacedDeviceId) {
+      emitToDevice(replacedDeviceId, SOCKET_EVENTS.SCREEN_REFRESH, { action: 'UNASSIGNED' });
+    }
+
+    // Push new room payload to newly assigned TV
+    try {
+      const payload = await this.getHotelTvPayload(hotelId, roomId);
+      emitToDevice(device.id, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+      if (device.deviceId && device.deviceId !== device.id) {
+        emitToDevice(device.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+      }
+    } catch {}
+
+    // Notify dashboard
+    emitToHotel(hotelId, 'device.assignment.updated', {
+      deviceId: device.id,
+      roomId,
+      roomNumber: room.roomNumber,
+      replacedDeviceId,
+      action: 'ASSIGNED',
+    });
+
+    return updated;
+  }
+
+  // ─── Unassign TV from Room (Preserves device record & credentials) ───
+  async unassignDevice(hotelId: string, deviceId: string, userId?: string) {
+    const device = await prisma.tvDevice.findFirst({
+      where: {
+        OR: [{ id: deviceId }, { deviceId }],
+        hotelId,
+        deletedAt: null,
+      },
+      include: { room: true },
+    });
+    if (!device) throw new NotFoundError('TV device', deviceId);
+
+    const oldRoomId = device.roomId;
+    const oldRoomNumber = device.room?.roomNumber;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.tvDevice.update({
+        where: { id: device.id },
+        data: {
+          roomId: null,
+          status: 'UNPAIRED',
+          screenState: 'UNPAIRED',
+        },
+      });
+
+      try {
+        await tx.auditLog.create({
+          data: {
+            hotelId,
+            userId: userId || null,
+            action: 'DEVICE_UNPAIRED',
+            resource: 'tv_device',
+            resourceId: device.id,
+            details: { previousRoomId: oldRoomId, previousRoomNumber: oldRoomNumber },
+            success: true,
+          },
+        });
+      } catch (e) {
+        console.warn('AuditLog warning during unassignDevice:', e);
+      }
+    });
+
+    // Signal TV to clear room state and show pairing / unassigned screen
+    emitToDevice(device.id, SOCKET_EVENTS.SCREEN_REFRESH, { action: 'UNASSIGNED' });
+    if (device.deviceId && device.deviceId !== device.id) {
+      emitToDevice(device.deviceId, SOCKET_EVENTS.SCREEN_REFRESH, { action: 'UNASSIGNED' });
+    }
+
+    // Notify dashboard
+    emitToHotel(hotelId, 'device.assignment.updated', {
+      deviceId: device.id,
+      roomId: null,
+      previousRoomId: oldRoomId,
+      action: 'UNASSIGNED',
+    });
+
+    return {
+      success: true,
+      message: `TV device '${device.name || device.deviceId}' unassigned successfully.`,
+    };
+  }
+
+  // ─── Safe Delete TV Device (Revokes token, severs session, preserves audit) ───
+  async deleteDevice(hotelId: string, deviceId: string, userId?: string) {
+    const device = await prisma.tvDevice.findFirst({
+      where: {
+        OR: [{ id: deviceId }, { deviceId }],
+        hotelId,
+        deletedAt: null,
+      },
+      include: { room: true },
+    });
+    if (!device) throw new NotFoundError('TV device', deviceId);
+
+    await prisma.$transaction(async (tx) => {
+      // Disconnect room first to avoid foreign key / unique constraints
+      if (device.roomId) {
+        await tx.tvDevice.update({
+          where: { id: device.id },
+          data: { roomId: null },
+        });
+      }
+
+      await tx.tvDevice.update({
+        where: { id: device.id },
+        data: {
+          deletedAt: new Date(),
+          roomId: null,
+          deviceToken: null,
+          isOnline: false,
+          status: 'OFFLINE',
+          screenState: 'UNPAIRED',
+          pairingCode: null,
+        },
+      });
+
+      try {
+        await tx.auditLog.create({
+          data: {
+            hotelId,
+            userId: userId || null,
+            action: 'DEVICE_UNPAIRED',
+            resource: 'tv_device',
+            resourceId: device.id,
+            details: {
+              deviceId: device.deviceId,
+              name: device.name,
+              lastRoomNumber: device.room?.roomNumber,
+              action: 'DELETED',
+            },
+            success: true,
+          },
+        });
+      } catch (e) {
+        console.warn('AuditLog warning during deleteDevice:', e);
+      }
+    });
+
+    // Disconnect and revoke token on TV
+    emitToDevice(device.id, 'DEVICE_REVOKED', {
+      message: 'This TV registration has been removed by hotel administration.',
+    });
+    if (device.deviceId && device.deviceId !== device.id) {
+      emitToDevice(device.deviceId, 'DEVICE_REVOKED', {
+        message: 'This TV registration has been removed by hotel administration.',
+      });
+    }
+
+    // Notify dashboard
+    emitToHotel(hotelId, 'device.deleted', { deviceId: device.id });
+
+    return {
+      success: true,
+      message: `TV device '${device.name || device.deviceId}' has been safely deleted and its session revoked.`,
+    };
+  }
+
+  // ─── Get Unassigned TV Devices for Room Assignment Dropdowns ───
+  async getAvailableDevices(hotelId: string) {
+    return prisma.tvDevice.findMany({
+      where: {
+        hotelId,
+        roomId: null,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // ─── Get Rooms without any Assigned TV ───
+  async getAvailableRooms(hotelId: string) {
+    return prisma.room.findMany({
+      where: {
+        hotelId,
+        deletedAt: null,
+        device: null,
+      },
+      include: {
+        roomType: true,
+        wifiZone: true,
+      },
+      orderBy: { roomNumber: 'asc' },
+    });
   }
 
   private getDecryptedZonePassword(zone: any): string | null {

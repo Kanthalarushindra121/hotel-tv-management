@@ -29,11 +29,13 @@ import {
   QrCode,
   Printer,
   Copy,
+  PhoneCall,
+  Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { useHotelStore, buildWifiQrString } from "@/lib/hotelStore";
-import { hotelApi } from "@/lib/api";
+import { useHotelStore, buildWifiQrString, DEFAULT_AMENITIES } from "@/lib/hotelStore";
+import { hotelApi, screensaverApi } from "@/lib/api";
 import { QRCodeSVG } from "qrcode.react";
 
 type SettingsTab = "hotel" | "wifi" | "time" | "amenities" | "rules" | "tv";
@@ -88,6 +90,77 @@ export default function SettingsPage() {
     securityType: (hotelStore.wifiSecurity as "WPA2" | "WPA3" | "WPA" | "nopass") || "WPA2",
   });
 
+  // Screensaver Settings State (Exactly 3 screensaver states)
+  const [screensaverPreviewMode, setScreensaverPreviewMode] = useState<"DEFAULT" | "GUEST" | "CHECKOUT">("GUEST");
+  const [screensaverForm, setScreensaverForm] = useState({
+    isEnabled: true,
+    idleTimeout: 300,
+    showClock: true,
+    showDate: true,
+    showRoomNumber: true,
+    showGuestName: true,
+    showHotelLogo: true,
+    showFacilities: true,
+    showWeather: false,
+    guestWelcomeTitle: "Welcome, {guestName}!",
+    guestWelcomeSubtitle: "We hope you enjoy your comfortable stay with us.",
+    guestPromoText: "Dial 9 for 24/7 Concierge and In-Room Dining.",
+    defaultWelcomeTitle: "Welcome to {hotelName}",
+    defaultWelcomeSubtitle: "Experience world-class luxury and personalized hospitality.",
+    defaultPromoText: "High-speed Wi-Fi & 24/7 guest support available.",
+  });
+
+  const { data: serverScreensaver } = useQuery({
+    queryKey: ["screensaver-config"],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      try {
+        return await screensaverApi.get();
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (serverScreensaver) {
+      setScreensaverForm({
+        isEnabled: serverScreensaver.isEnabled ?? true,
+        idleTimeout: serverScreensaver.idleTimeout ?? 300,
+        showClock: serverScreensaver.showClock ?? true,
+        showDate: serverScreensaver.showDate ?? true,
+        showRoomNumber: serverScreensaver.showRoomNumber ?? true,
+        showGuestName: serverScreensaver.showGuestName ?? true,
+        showHotelLogo: serverScreensaver.showHotelLogo ?? true,
+        showFacilities: serverScreensaver.showFacilities ?? true,
+        showWeather: serverScreensaver.showWeather ?? false,
+        guestWelcomeTitle: serverScreensaver.guestWelcomeTitle || "Welcome, {guestName}!",
+        guestWelcomeSubtitle: serverScreensaver.guestWelcomeSubtitle || "We hope you enjoy your comfortable stay with us.",
+        guestPromoText: serverScreensaver.guestPromoText || "Dial 9 for 24/7 Concierge and In-Room Dining.",
+        defaultWelcomeTitle: serverScreensaver.defaultWelcomeTitle || "Welcome to {hotelName}",
+        defaultWelcomeSubtitle: serverScreensaver.defaultWelcomeSubtitle || "Experience world-class luxury and personalized hospitality.",
+        defaultPromoText: serverScreensaver.defaultPromoText || "High-speed Wi-Fi & 24/7 guest support available.",
+      });
+    }
+  }, [serverScreensaver]);
+
+  const updateScreensaverMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return await screensaverApi.update(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["screensaver-config"] });
+      toast.success("Screensaver Settings Saved", {
+        description: "Idle timers, display toggles, and dual screensaver modes synchronized across all hotel TVs.",
+      });
+    },
+    onError: (err: any) => {
+      toast.error("Failed to save screensaver settings", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
+
   const [newRuleText, setNewRuleText] = useState("");
 
   // New Amenity Modal / Form
@@ -98,6 +171,7 @@ export default function SettingsPage() {
   // Fetch from backend
   const { data: serverProfile, isLoading } = useQuery({
     queryKey: ["hotel-profile"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         return await hotelApi.getProfile();
@@ -207,6 +281,11 @@ export default function SettingsPage() {
       // 4. Update amenities in backend
       if (hotelStore.amenities && hotelStore.amenities.length > 0) {
         await hotelApi.updateAmenities(hotelStore.amenities);
+      }
+
+      // 5. Update house rules in backend
+      if (form.houseRules && form.houseRules.length > 0) {
+        await hotelApi.updateHouseRules(form.houseRules);
       }
 
       // 5. Update hotel store for instant local sync
@@ -529,6 +608,21 @@ export default function SettingsPage() {
                   placeholder="https://yourhotel.com"
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 />
+              </div>
+
+              <div className="sm:col-span-2 pt-4 flex items-center justify-between border-t border-slate-100">
+                <span className="text-xs text-slate-500">
+                  Update your official hotel identity and guest contact information.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{saveMutation.isPending ? "Saving..." : "Save Hotel Info"}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1010,6 +1104,21 @@ export default function SettingsPage() {
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
+
+              <div className="sm:col-span-2 pt-4 flex items-center justify-between border-t border-slate-100">
+                <span className="text-xs text-slate-500">
+                  Timings are pushed dynamically to connected TV displays and check-in workflows.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{saveMutation.isPending ? "Saving..." : "Save Time & Schedule"}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1178,55 +1287,670 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
+
+            <div className="pt-4 flex items-center justify-between border-t border-slate-100">
+              <span className="text-xs text-slate-500">
+                House rules display on TV guest greetings and screensavers.
+              </span>
+              <button
+                type="button"
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{saveMutation.isPending ? "Saving..." : "Save House Rules"}</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* =========================================================================
-            TAB 6: TV APPEARANCE
+            TAB 6: TV & SCREENSAVER SETTINGS
             ========================================================================= */}
         {activeTab === "tv" && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5 animate-in fade-in-50">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">In-Room Smart TV Experience</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Customize greeting banners, checkout notices, and ambient idle timeouts for televisions.
-              </p>
+          <div className="space-y-6 animate-in fade-in-50">
+            {/* Top Config Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Tv className="w-5 h-5 text-indigo-600" />
+                    <span>In-Room TV & Automatic Screensaver Settings</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Configure intelligent idle timeouts, remote wake-up, and dual screen modes (Guest Occupied vs Hotel Default).
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <a
+                    href="/tv-preview"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs transition"
+                  >
+                    <Tv className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>4K TV Simulator</span>
+                  </a>
+
+                  <button
+                    onClick={() => updateScreensaverMutation.mutate(screensaverForm)}
+                    disabled={updateScreensaverMutation.isPending}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-md shadow-indigo-200 transition disabled:opacity-60 cursor-pointer"
+                  >
+                    {updateScreensaverMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Save Screensaver Settings</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Screensaver Global Activation & Idle Timeout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 block">
+                      Automatic Idle Screensaver
+                    </span>
+                    <span className="text-[11px] text-slate-500 mt-0.5 block">
+                      When active, TV screens switch to ambient screensaver after the specified idle duration, and wake instantly on any remote keypress.
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                    <input
+                      type="checkbox"
+                      checked={screensaverForm.isEnabled}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, isEnabled: e.target.checked })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-900 mb-1">
+                    Idle Activation Timeout
+                  </label>
+                  <select
+                    value={screensaverForm.idleTimeout}
+                    onChange={(e) =>
+                      setScreensaverForm({
+                        ...screensaverForm,
+                        idleTimeout: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  >
+                    <option value={60}>1 Minute (60 seconds) — Fast test</option>
+                    <option value={120}>2 Minutes (120 seconds)</option>
+                    <option value={300}>5 Minutes (300 seconds) — Recommended</option>
+                    <option value={600}>10 Minutes (600 seconds)</option>
+                    <option value={900}>15 Minutes (900 seconds)</option>
+                    <option value={1200}>20 Minutes (1200 seconds)</option>
+                    <option value={1800}>30 Minutes (1800 seconds)</option>
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Remote control D-pad clicks automatically reset this timer.
+                  </span>
+                </div>
+              </div>
+
+              {/* Display Element Toggles */}
+              <div className="space-y-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
+                  Elements Displayed on TV Screensaver
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                  {[
+                    { key: "showClock", label: "Digital Clock", icon: Clock },
+                    { key: "showDate", label: "Date Display", icon: Clock },
+                    { key: "showRoomNumber", label: "Room Badge", icon: Building2 },
+                    { key: "showGuestName", label: "Guest Name", icon: Sparkles },
+                    { key: "showHotelLogo", label: "Hotel Brand", icon: Building2 },
+                    { key: "showFacilities", label: "Facilities Promo", icon: Bell },
+                  ].map((item) => {
+                    const checked = (screensaverForm as any)[item.key];
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() =>
+                          setScreensaverForm({
+                            ...screensaverForm,
+                            [item.key]: !checked,
+                          })
+                        }
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          checked
+                            ? "border-indigo-300 bg-indigo-50/60 text-indigo-900 shadow-2xs"
+                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <item.icon className={`w-4 h-4 ${checked ? "text-indigo-600" : "text-slate-400"}`} />
+                          <span
+                            className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                              checked ? "bg-indigo-600 text-white" : "border border-slate-300 text-transparent"
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold mt-2 block">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dual Mode Template Editors */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                {/* Mode 1: Guest Occupied Template */}
+                <div className="p-4 rounded-2xl border border-indigo-100 bg-indigo-50/20 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase tracking-wider">
+                      Mode 1 (Guest Occupied)
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Welcome Title Template
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.guestWelcomeTitle}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, guestWelcomeTitle: e.target.value })
+                      }
+                      placeholder="Welcome, {guestName}!"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 font-semibold"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      Use <code>{"{guestName}"}</code> for dynamic guest name replacement.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Guest Subtitle
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.guestWelcomeSubtitle}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, guestWelcomeSubtitle: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Facilities &amp; Concierge Promo Banner
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.guestPromoText}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, guestPromoText: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                </div>
+
+                {/* Mode 2: Default Unoccupied Template */}
+                <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-wider">
+                      Mode 2 (Default Unoccupied)
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Hotel Welcome Title
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.defaultWelcomeTitle}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, defaultWelcomeTitle: e.target.value })
+                      }
+                      placeholder="Welcome to {hotelName}"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 font-semibold"
+                    />
+                    <span className="text-[10px] text-slate-400">
+                      Use <code>{"{hotelName}"}</code> for dynamic property name.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Hotel Subtitle
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.defaultWelcomeSubtitle}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, defaultWelcomeSubtitle: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Services / Wi-Fi Note Banner
+                    </label>
+                    <input
+                      type="text"
+                      value={screensaverForm.defaultPromoText}
+                      onChange={(e) =>
+                        setScreensaverForm({ ...screensaverForm, defaultPromoText: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Guest Welcome Banner Greeting
-              </label>
-              <textarea
-                rows={2}
-                value={form.welcomeMessage}
-                onChange={(e) => setForm({ ...form, welcomeMessage: e.target.value })}
-                className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              />
-            </div>
+            {/* ══════════════ DUAL INTERACTIVE 16:9 LIVE PREVIEWS ══════════════ */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Live 16:9 Screensaver Simulation
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Real-time visual preview of how in-room TVs render the idle screensaver in each state.
+                  </p>
+                </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Checkout Morning Reminder Message
-              </label>
-              <textarea
-                rows={2}
-                value={form.checkoutMessage}
-                onChange={(e) => setForm({ ...form, checkoutMessage: e.target.value })}
-                className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              />
-            </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setScreensaverPreviewMode("DEFAULT")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      screensaverPreviewMode === "DEFAULT"
+                        ? "bg-white text-indigo-700 shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    1. Welcome Hotel (Unoccupied)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScreensaverPreviewMode("GUEST")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      screensaverPreviewMode === "GUEST"
+                        ? "bg-white text-indigo-700 shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    2. Welcome Customer (Occupied)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScreensaverPreviewMode("CHECKOUT")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                      screensaverPreviewMode === "CHECKOUT"
+                        ? "bg-white text-indigo-700 shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    3. Checkout Thank You
+                  </button>
+                </div>
+              </div>
 
-            <div className="pt-2 border-t border-slate-100">
-              <a
-                href="/tv-preview"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-black text-xs font-semibold text-white shadow-xs transition"
-              >
-                <Tv className="w-3.5 h-3.5" />
-                <span>Launch TV Simulator Preview</span>
-              </a>
+              {/* 16:9 Screen Canvas - Faithfully matching TV Display Simulator (tv-preview) */}
+              <div className="relative aspect-video w-full max-w-4xl mx-auto rounded-2xl overflow-hidden border-4 border-slate-800 bg-[#070712] shadow-2xl p-5 md:p-7 flex flex-col justify-between text-white select-none">
+                {/* Ambient glow */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-[#0a0a20] via-[#0d0d2b] to-[#14143a] opacity-90 pointer-events-none" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent pointer-events-none" />
+
+                {(() => {
+                  const simHotelName = form.name || hotelStore.hotelName || "SmartStay Luxury Resort";
+                  const simHotelTagline = form.tagline || hotelStore.tagline || "Experience world-class luxury and dedicated 24/7 guest services.";
+                  const simGuestName = "Rahul Sharma";
+                  const simCheckoutTime = form.checkOutTime || "11:00 AM";
+                  const simQuietHours = `${form.quietHoursStart || "22:00"} – ${form.quietHoursEnd || "07:00"}`;
+                  const simPhone = form.phone || hotelStore.conciergePhone || "+91 85559 72882";
+                  const simWifiSsid = wifiForm.networkName || hotelStore.wifiNetwork || `${simHotelName.replace(/\s+/g, "_")}_Guest`;
+                  const simWifiPass = wifiForm.password || hotelStore.wifiPassword || "";
+                  const simWifiSecurity = wifiForm.securityType || hotelStore.wifiSecurity || "WPA2";
+                  const simWifiQrString = buildWifiQrString(simWifiSsid, simWifiPass, simWifiSecurity);
+                  const activeAmenitiesList = (hotelStore.amenities && hotelStore.amenities.length > 0)
+                    ? hotelStore.amenities.filter((a) => a.isActive)
+                    : DEFAULT_AMENITIES;
+
+                  return (
+                    <>
+                      {/* ═══════════════ STATE 1: WELCOME HOTEL (Unoccupied) ═══════════════ */}
+                      {screensaverPreviewMode === "DEFAULT" && (
+                        <>
+                          {/* Header */}
+                          <div className="relative z-10 flex items-center justify-between pb-2 border-b border-white/10">
+                            <div>
+                              <span className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase block">
+                                WELCOME TO
+                              </span>
+                              <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight">
+                                {simHotelName}
+                              </h1>
+                              <p className="text-[11px] text-slate-400 m-0 mt-0.5 max-w-md truncate">
+                                {simHotelTagline}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
+                                <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
+                                  SMART TV
+                                </span>
+                                <p className="text-base md:text-lg font-black text-white m-0">ROOM 101</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-base md:text-lg font-bold text-white m-0">
+                                  {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                                <p className="text-[10px] text-slate-400 m-0">
+                                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3 Main Information Cards Grid */}
+                          <div className="relative z-10 my-auto grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 items-stretch">
+                            {/* Card 1: Property Overview */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                              <div>
+                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                  Hotel Hospitality
+                                </span>
+                                <div className="mt-2 space-y-2 text-[11px]">
+                                  <p className="text-slate-300 m-0 line-clamp-2 leading-relaxed">
+                                    Welcome to {simHotelName}. Our property features state-of-the-art guest rooms and 24/7 dedicated reception.
+                                  </p>
+                                  <div className="flex items-center gap-1.5 text-indigo-400 font-semibold">
+                                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Standard Check-out: {simCheckoutTime}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="pt-2 border-t border-white/10 text-[9px] text-slate-400">
+                                Front Desk Direct: {simPhone}
+                              </div>
+                            </div>
+
+                            {/* Card 2: Connected Wi-Fi (QR Only + "Connect WiFi") */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden">
+                              <div className="rounded-lg bg-white p-2 shadow-md shrink-0">
+                                <QRCodeSVG value={simWifiQrString} size={80} level="M" />
+                              </div>
+                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide">
+                                Connect WiFi
+                              </span>
+                            </div>
+
+                            {/* Card 3: Hotel Amenities */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                  HOTEL AMENITIES
+                                </span>
+                                <span className="text-[9px] text-slate-400 uppercase">
+                                  Property Features
+                                </span>
+                              </div>
+                              <div className="space-y-1.5 my-2 overflow-hidden">
+                                {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
+                                  <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                      <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
+                                        {renderAmenityIcon(amenity.icon)}
+                                      </div>
+                                      <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
+                                        {amenity.name}
+                                      </span>
+                                    </div>
+                                    {amenity.hours && (
+                                      <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
+                                        {amenity.hours}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="pt-1.5 border-t border-white/10 text-[9px] text-slate-400">
+                                Room Service: Dial 9 on in-room phone.
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Bottom Bar */}
+                          <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
+                            <span>Quiet Hours: {simQuietHours} • Reception Desk: {simPhone}</span>
+                            <span className="text-white/40 tracking-wider">
+                              Press any button on TV remote to wake screen
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ═══════════════ STATE 2: WELCOME CUSTOMER (Occupied) ═══════════════ */}
+                      {screensaverPreviewMode === "GUEST" && (
+                        <>
+                          {/* Header */}
+                          <div className="relative z-10 flex items-center justify-between pb-2 border-b border-white/10">
+                            <div>
+                              <p className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase m-0">
+                                {simHotelName}
+                              </p>
+                              <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight">
+                                Welcome, {simGuestName}!
+                              </h1>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
+                                <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
+                                  YOUR ROOM
+                                </span>
+                                <p className="text-base md:text-lg font-black text-white m-0">101</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-base md:text-lg font-bold text-white m-0">
+                                  {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                                <p className="text-[10px] text-slate-400 m-0">
+                                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3 Main Information Cards Grid */}
+                          <div className="relative z-10 my-auto grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 items-stretch">
+                            {/* Card 1: Your Reservation */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                              <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                YOUR RESERVATION
+                              </span>
+                              <div className="my-2 space-y-1.5 text-[11px]">
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Guest</span>
+                                  <span className="font-semibold text-white truncate max-w-[60%]">{simGuestName}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Room</span>
+                                  <span className="font-semibold text-white">101</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Checkout</span>
+                                  <span className="font-semibold text-amber-300">By {simCheckoutTime}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-slate-400">Front Desk</span>
+                                  <span className="font-semibold text-white">Dial 9</span>
+                                </div>
+                              </div>
+                              <div className="pt-2 border-t border-white/10 text-[9px] text-slate-400">
+                                Need express checkout? Contact Reception.
+                              </div>
+                            </div>
+
+                            {/* Card 2: In-Room Wi-Fi (QR Only + "Connect WiFi") */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden">
+                              <div className="rounded-lg bg-white p-2 shadow-md shrink-0">
+                                <QRCodeSVG value={simWifiQrString} size={80} level="M" />
+                              </div>
+                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide">
+                                Connect WiFi
+                              </span>
+                            </div>
+
+                            {/* Card 3: Hotel Amenities */}
+                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                  HOTEL AMENITIES
+                                </span>
+                                <span className="text-[9px] text-slate-400 uppercase">
+                                  Guest Services
+                                </span>
+                              </div>
+                              <div className="space-y-1.5 my-2 overflow-hidden">
+                                {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
+                                  <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                      <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
+                                        {renderAmenityIcon(amenity.icon)}
+                                      </div>
+                                      <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
+                                        {amenity.name}
+                                      </span>
+                                    </div>
+                                    {amenity.hours && (
+                                      <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
+                                        {amenity.hours}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="pt-1.5 border-t border-white/10 text-[9px] text-slate-400">
+                                Dial 9 for In-Room Dining &amp; Concierge
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Bottom Bar */}
+                          <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
+                            <span>Quiet Hours: {simQuietHours} • Reception / Front Desk: {simPhone}</span>
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-900 text-[10px] font-bold shadow-xs">
+                              <Play className="w-3 h-3 fill-indigo-600 text-indigo-600" />
+                              <span>Press Select on Remote to Open TV Applications</span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ═══════════════ STATE 3: CHECKOUT THANK YOU (Stay Completed / Departure) ═══════════════ */}
+                      {screensaverPreviewMode === "CHECKOUT" && (
+                        <div className="relative z-10 flex flex-col justify-between h-full">
+                          {/* Header */}
+                          <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                            <div>
+                              <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30 uppercase tracking-wider inline-block">
+                                CHECKOUT COMPLETE
+                              </span>
+                              <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-1.5 tracking-tight">
+                                Thank You for Staying with Us!
+                              </h1>
+                              <p className="text-[11px] text-slate-300 m-0 mt-0.5">
+                                We hope you had a pleasant stay at {simHotelName}.
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <p className="text-base md:text-lg font-bold text-white m-0">
+                                {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                              <p className="text-[10px] text-amber-400 font-semibold m-0">
+                                Room 122 • Departure
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Numbered Departure Checklist Card */}
+                          <div className="my-auto max-w-xl w-full mx-auto rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
+                            <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-2.5">
+                              Departure Reminders
+                            </p>
+                            <div className="flex flex-col gap-2 text-[11px] text-slate-200">
+                              <div className="flex items-center gap-2.5">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
+                                  1
+                                </span>
+                                <span>Please check the room and safe for all personal belongings and chargers.</span>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
+                                  2
+                                </span>
+                                <span>Switch off the air conditioner, lights, and ensure faucets are closed.</span>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
+                                  3
+                                </span>
+                                <span>Hand over your room key card at the front desk / reception box.</span>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-300">
+                              <div className="flex items-center gap-1.5">
+                                <PhoneCall className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>Need luggage or airport transfer assistance? Reception: {simPhone}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setScreensaverPreviewMode("DEFAULT")}
+                                className="border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-lg px-2.5 py-1 text-[9px] font-semibold transition-all cursor-pointer"
+                              >
+                                Return to Welcome Screen
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Bottom Footer */}
+                          <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
+                            <span>SmartStay TV • Safe Travels &amp; Have a Wonderful Journey</span>
+                            <span className="text-white/40">
+                              Reverting to Hotel Welcome Screen when room is prepared
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           </div>
         )}

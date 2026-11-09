@@ -21,19 +21,24 @@ export class CheckinsController {
     let checkInDate = body.checkInDate ? new Date(body.checkInDate) : new Date();
     if (isNaN(checkInDate.getTime())) checkInDate = new Date();
 
-    // Parse checkOutDate (defaults to checkInDate + nights if not provided or empty)
-    let checkOutDate: Date;
-    if (body.checkOutDate) {
-      checkOutDate = new Date(body.checkOutDate);
-    } else if (body.checkOut && String(body.checkOut).trim()) {
-      checkOutDate = new Date(body.checkOut);
-    } else {
-      const nights = Math.max(1, Number(body.nights) || 1);
-      checkOutDate = new Date(checkInDate.getTime() + nights * 24 * 60 * 60 * 1000);
+    // Parse checkOutDate (supports custom date/time, hourly duration, or nights)
+    let checkOutDate: Date | null = null;
+    const rawCheckOut = body.checkOutDate || body.checkOut;
+    if (rawCheckOut && String(rawCheckOut).trim()) {
+      const parsed = new Date(rawCheckOut);
+      if (!isNaN(parsed.getTime()) && parsed.getTime() > checkInDate.getTime()) {
+        checkOutDate = parsed;
+      }
     }
-    if (isNaN(checkOutDate.getTime()) || checkOutDate <= checkInDate) {
-      const nights = Math.max(1, Number(body.nights) || 1);
-      checkOutDate = new Date(checkInDate.getTime() + nights * 24 * 60 * 60 * 1000);
+
+    if (!checkOutDate) {
+      const hours = Number(body.hours || body.stayHours);
+      if (hours && hours > 0) {
+        checkOutDate = new Date(checkInDate.getTime() + hours * 60 * 60 * 1000);
+      } else {
+        const nights = Math.max(1, Number(body.nights) || 1);
+        checkOutDate = new Date(checkInDate.getTime() + nights * 24 * 60 * 60 * 1000);
+      }
     }
 
     const guestData = body.guestData || {
@@ -55,6 +60,7 @@ export class CheckinsController {
         specialRequests: body.specialRequests || undefined,
         internalNotes: body.internalNotes || undefined,
         source: body.source || 'MANUAL',
+        forceCheckIn: Boolean(body.forceCheckIn),
       },
       req.user.userId
     );

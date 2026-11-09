@@ -23,5 +23,10 @@ export async function guestRoutes(app: FastifyInstance) {
     preHandler: [app.authenticate],
     handler: ctrl.updateGuest.bind(ctrl),
   });
+
+  app.delete('/guests/:id', {
+    preHandler: [app.authenticate],
+    handler: ctrl.deleteGuest.bind(ctrl),
+  });
 }
 

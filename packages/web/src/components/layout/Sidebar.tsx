@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, memo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -18,6 +18,8 @@ import {
   Hotel,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
+import { usePredictivePrefetch } from "@/hooks/usePredictivePrefetch";
+import { useNavigationStore } from "@/lib/navigation-store";
 import { toast } from "sonner";
 
 interface SidebarProps {
@@ -36,10 +38,12 @@ const NAV_ITEMS = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
+function SidebarComponent({ mobileOpen = false, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, hotel, clearAuth } = useAuthStore();
+  const { prefetchSection } = usePredictivePrefetch();
+  const { targetPath, startNavigation } = useNavigationStore();
 
   const handleLogout = () => {
     clearAuth();
@@ -56,14 +60,16 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
     ? `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase() || "SS"
     : "SS";
 
-  // Filter navigation items by role
-  const visibleNavItems = NAV_ITEMS.filter((item) => {
-    if (item.href === "/staff") return isOwnerOrAdmin;
-    if (item.href === "/settings") return isOwnerOrAdmin || isManager;
-    if (item.href === "/reports") return isOwnerOrAdmin || isManager;
-    if (item.href === "/wifi") return isOwnerOrAdmin || isManager;
-    return true;
-  });
+  // Filter navigation items by role (memoized)
+  const visibleNavItems = useMemo(() => {
+    return NAV_ITEMS.filter((item) => {
+      if (item.href === "/staff") return isOwnerOrAdmin;
+      if (item.href === "/settings") return isOwnerOrAdmin || isManager;
+      if (item.href === "/reports") return isOwnerOrAdmin || isManager;
+      if (item.href === "/wifi") return isOwnerOrAdmin || isManager;
+      return true;
+    });
+  }, [isOwnerOrAdmin, isManager]);
 
   const content = (
     <div className="h-full flex flex-col justify-between bg-white border-r border-slate-200">
@@ -99,17 +105,25 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
         <div className="px-3 py-4 space-y-1">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
+            const currentRoute = targetPath || pathname;
             const isActive =
               item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
+                ? currentRoute === "/"
+                : currentRoute.startsWith(item.href);
 
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 prefetch={true}
-                onClick={onCloseMobile}
+                onMouseEnter={() => prefetchSection(item.href)}
+                onFocus={() => prefetchSection(item.href)}
+                onClick={() => {
+                  if (item.href !== pathname) {
+                    startNavigation(item.href, item.label);
+                  }
+                  onCloseMobile?.();
+                }}
                 className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                   isActive
                     ? "bg-indigo-50 text-indigo-700 shadow-xs"
@@ -138,6 +152,8 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
           href="/tv-preview"
           target="_blank"
           rel="noopener noreferrer"
+          onMouseEnter={() => prefetchSection("/tv-preview")}
+          onFocus={() => prefetchSection("/tv-preview")}
           className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500/10 to-indigo-600/5 border border-indigo-200/60 text-indigo-700 hover:bg-indigo-100/60 transition-all text-xs font-semibold"
         >
           <div className="flex items-center gap-2">
@@ -197,3 +213,5 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
     </>
   );
 }
+
+export const Sidebar = memo(SidebarComponent);

@@ -95,5 +95,23 @@ export async function hotelRoutes(app: FastifyInstance) {
     preHandler: [app.requireRole('OWNER', 'ADMIN', 'MANAGER')],
     handler: hotelsController.updateCheckoutSteps.bind(hotelsController),
   });
+
+  // Screensaver Settings
+  app.get('/hotel/screensaver', {
+    preHandler: [app.authenticate],
+    handler: hotelsController.getScreensaver.bind(hotelsController),
+  });
+  app.get('/hotels/screensaver', {
+    preHandler: [app.authenticate],
+    handler: hotelsController.getScreensaver.bind(hotelsController),
+  });
+  app.put('/hotel/screensaver', {
+    preHandler: [app.requireRole('OWNER', 'ADMIN', 'MANAGER')],
+    handler: hotelsController.updateScreensaver.bind(hotelsController),
+  });
+  app.put('/hotels/screensaver', {
+    preHandler: [app.requireRole('OWNER', 'ADMIN', 'MANAGER')],
+    handler: hotelsController.updateScreensaver.bind(hotelsController),
+  });
 }
 

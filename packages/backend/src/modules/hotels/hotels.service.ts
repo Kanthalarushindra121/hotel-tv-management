@@ -476,6 +476,69 @@ export class HotelsService {
       offlineTvs,
     };
   }
+
+  async getScreensaverConfig(hotelId: string) {
+    let config = await prisma.screensaverConfig.findUnique({
+      where: { hotelId },
+    });
+    if (!config) {
+      config = await prisma.screensaverConfig.create({
+        data: {
+          hotelId,
+          isEnabled: true,
+          idleTimeout: 300,
+          showClock: true,
+          showDate: true,
+          showRoomNumber: true,
+          showGuestName: true,
+          showHotelLogo: true,
+          showFacilities: true,
+          showWeather: false,
+          guestWelcomeTitle: 'Welcome, {guestName}!',
+          guestWelcomeSubtitle: 'We hope you enjoy your comfortable stay with us.',
+          guestPromoText: 'Dial 9 for 24/7 Concierge and In-Room Dining.',
+          defaultWelcomeTitle: 'Welcome to {hotelName}',
+          defaultWelcomeSubtitle: 'Experience world-class luxury and personalized hospitality.',
+          defaultPromoText: 'High-speed Wi-Fi & 24/7 guest support available.',
+        },
+      });
+    }
+    return config;
+  }
+
+  async updateScreensaverConfig(hotelId: string, data: any, userId: string) {
+    const config = await prisma.screensaverConfig.upsert({
+      where: { hotelId },
+      update: {
+        ...data,
+        updatedAt: new Date(),
+      },
+      create: {
+        hotelId,
+        ...data,
+      },
+    });
+
+    emitToHotel(hotelId, 'hotel.screensaver.updated', config);
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          hotelId,
+          userId,
+          action: 'SETTINGS_UPDATED',
+          resource: 'screensaver_config',
+          resourceId: config.id,
+          details: data,
+          success: true,
+        },
+      });
+    } catch (e) {
+      console.warn('AuditLog error:', e);
+    }
+
+    return config;
+  }
 }
 
 export const hotelsService = new HotelsService();

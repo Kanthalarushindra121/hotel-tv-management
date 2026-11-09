@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { roomsApi, checkinsApi, RoomDTO } from "@/lib/api";
+import { roomsApi, checkinsApi, devicesApi, RoomDTO } from "@/lib/api";
 
 export default function RoomDetailPage() {
   const params = useParams();
@@ -39,10 +39,26 @@ export default function RoomDetailPage() {
 
   const [editStatusModalOpen, setEditStatusModalOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string>("AVAILABLE");
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedTvDeviceId, setSelectedTvDeviceId] = useState("");
+
+  const { data: serverAvailableDevices } = useQuery({
+    queryKey: ["available-devices"],
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      try {
+        return await devicesApi.getAvailableDevices();
+      } catch {
+        return [];
+      }
+    },
+  });
+  const availableDevices: any[] = serverAvailableDevices || [];
 
   // Fetch Room Details
   const { data: room, isLoading } = useQuery({
     queryKey: ["room", roomId],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         return await roomsApi.getById(roomId);
@@ -53,6 +69,52 @@ export default function RoomDetailPage() {
   });
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  // Assign TV Mutation
+  const assignTvMutation = useMutation({
+    mutationFn: async (tvDeviceId: string) => {
+      if (!tvDeviceId) {
+        return await roomsApi.unassignTv(roomId);
+      }
+      return await roomsApi.assignTv(roomId, tvDeviceId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["available-devices"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      toast.success("TV Assignment Updated", {
+        description: `TV device successfully associated with Room ${room?.number}`,
+      });
+      setAssignModalOpen(false);
+    },
+    onError: (err: any) => {
+      toast.error("Failed to assign TV", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
+
+  // Unassign TV Mutation
+  const unassignTvMutation = useMutation({
+    mutationFn: async () => {
+      return await roomsApi.unassignTv(roomId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+      queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["available-devices"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      toast.success("TV Device Unassigned", {
+        description: `TV unlinked from Room ${room?.number}. Device remains paired in hotel fleet.`,
+      });
+    },
+    onError: (err: any) => {
+      toast.error("Failed to unassign TV", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
 
   // Delete Room Mutation
   const deleteRoomMutation = useMutation({
@@ -159,7 +221,11 @@ export default function RoomDetailPage() {
   const isAvailable = room.status.toUpperCase() === "AVAILABLE";
   const isCleaning = room.status.toUpperCase() === "CLEANING";
   const isMaintenance = room.status.toUpperCase() === "MAINTENANCE";
-  const tvOnline = room.device?.status?.toUpperCase() === "ONLINE";
+  const hasAssignedTv = Boolean(room.device || room.assignedTvId);
+  const assignedTvId = room.device?.id || room.assignedTvId;
+  const assignedTvName = room.device?.name || (assignedTvId ? `TV (${assignedTvId.slice(-4)})` : null);
+  const assignedDeviceId = room.device?.deviceId || room.device?.id || assignedTvId;
+  const tvOnline = Boolean(room.isOnline || (room.device?.status?.toUpperCase() === "ONLINE") || room.device?.isOnline);
 
   return (
     <DashboardLayout>
@@ -176,7 +242,7 @@ export default function RoomDetailPage() {
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                  Room {room.number}
+                  Room {room.number || room.roomNumber}
                 </h2>
                 <span
                   className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
@@ -193,7 +259,7 @@ export default function RoomDetailPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Floor {room.floor} • {room.type} • Capacity: {room.capacity || 2} Guests
+                Floor {room.floor} • {room.type || (room as any).roomType?.name || "Standard Room"} • Capacity: {room.capacity || (room as any).maxOccupancy || 2} Guests
               </p>
             </div>
           </div>
@@ -266,7 +332,7 @@ export default function RoomDetailPage() {
             <div className="text-xs space-y-2 text-slate-600">
               <div className="flex justify-between">
                 <span className="text-slate-400">Room Number:</span>
-                <span className="font-bold text-slate-900">{room.number}</span>
+                <span className="font-bold text-slate-900 text-sm">Room {room.number || room.roomNumber}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Floor Level:</span>
@@ -274,11 +340,11 @@ export default function RoomDetailPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Category:</span>
-                <span className="font-semibold text-slate-800">{room.type}</span>
+                <span className="font-semibold text-slate-800">{room.type || (room as any).roomType?.name || "Standard Room"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Max Capacity:</span>
-                <span className="font-semibold text-slate-800">{room.capacity || 2} persons</span>
+                <span className="font-semibold text-slate-800">{room.capacity || (room as any).maxOccupancy || 2} persons</span>
               </div>
             </div>
           </div>
@@ -337,48 +403,99 @@ export default function RoomDetailPage() {
           </div>
 
           {/* Card 3: Smart TV Device */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs font-bold text-slate-800 uppercase tracking-wider">
-              <div className="flex items-center gap-2">
-                <Tv className="w-4 h-4 text-indigo-600" />
-                <span>Smart TV Hardware</span>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <div className="flex items-center gap-2">
+                  <Tv className="w-4 h-4 text-indigo-600" />
+                  <span>Smart TV Hardware</span>
+                </div>
+                {hasAssignedTv ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-normal">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        tvOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
+                      }`}
+                    />
+                    <span className={tvOnline ? "text-emerald-700" : "text-slate-500"}>
+                      {tvOnline ? "ONLINE" : "OFFLINE"}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                    NO TV
+                  </span>
+                )}
               </div>
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  tvOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
-                }`}
-              />
+
+              <div className="text-xs space-y-2 text-slate-600 mt-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Assigned TV:</span>
+                  <span className="font-semibold text-slate-900 truncate max-w-[140px] text-right">
+                    {assignedTvName || "No TV Assigned"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Connection:</span>
+                  <span
+                    className={`font-bold ${
+                      !hasAssignedTv
+                        ? "text-slate-400"
+                        : tvOnline
+                        ? "text-emerald-600"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {!hasAssignedTv
+                      ? "Unassigned"
+                      : tvOnline
+                      ? "Online & Synchronized"
+                      : "Offline / Standby"}
+                  </span>
+                </div>
+                {hasAssignedTv && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Device ID:</span>
+                    <span className="font-mono text-[10px] text-slate-600 truncate max-w-[140px]">
+                      {assignedDeviceId || room.assignedTvId || "—"}
+                    </span>
+                  </div>
+                )}
+                {hasAssignedTv && room.lastSeenAt && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Last Seen:</span>
+                    <span className="text-[11px] text-slate-500">
+                      {new Date(room.lastSeenAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="text-xs space-y-2 text-slate-600">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Hardware:</span>
-                <span className="font-semibold text-slate-800">
-                  {room.device?.name || "Connected Display"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Status:</span>
-                <span
-                  className={`font-bold ${
-                    tvOnline ? "text-emerald-600" : "text-slate-500"
-                  }`}
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTvDeviceId(assignedTvId || "");
+                  setAssignModalOpen(true);
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 transition cursor-pointer"
+              >
+                <Tv className="w-3 h-3 text-indigo-600" />
+                <span>{hasAssignedTv ? "Change TV" : "Assign TV"}</span>
+              </button>
+
+              {hasAssignedTv && (
+                <button
+                  type="button"
+                  onClick={() => unassignTvMutation.mutate()}
+                  disabled={unassignTvMutation.isPending}
+                  className="px-2.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-[11px] font-semibold text-rose-700 transition disabled:opacity-50 cursor-pointer"
+                  title="Unassign TV from this room"
                 >
-                  {tvOnline ? "Online & Synchronized" : "Offline / Unpaired"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Device ID:</span>
-                <span className="font-mono text-[11px] text-slate-700">
-                  {room.device?.id || "N/A"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Pairing Code:</span>
-                <span className="font-mono text-indigo-600 font-bold">
-                  {room.device?.pairingCode || "784-219"}
-                </span>
-              </div>
+                  {unassignTvMutation.isPending ? "..." : "Unassign"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -446,8 +563,29 @@ export default function RoomDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {room.history && room.history.length > 0 ? (
-                  room.history.map((record) => (
+                {(() => {
+                  const stays = (room.history && room.history.length > 0)
+                    ? room.history
+                    : ((room as any).bookings || []).map((b: any) => ({
+                        id: b.id,
+                        guestName: b.guest ? `${b.guest.firstName || ""} ${b.guest.lastName || ""}`.trim() : "Guest",
+                        checkIn: b.checkInDate ? new Date(b.checkInDate).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—",
+                        checkOut: b.checkOutDate ? new Date(b.checkOutDate).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—",
+                        nights: b.nights || 1,
+                        status: b.status,
+                      }));
+
+                  if (!stays || stays.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-slate-400">
+                          No historical stays recorded for this room.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return stays.map((record: any) => (
                     <tr key={record.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-6 font-semibold text-slate-900">
                         {record.guestName}
@@ -458,19 +596,17 @@ export default function RoomDetailPage() {
                         {record.nights} {record.nights === 1 ? "night" : "nights"}
                       </td>
                       <td className="py-3 px-6">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
-                          Completed
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          record.status === "CHECKED_IN"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {record.status === "CHECKED_IN" ? "In-House" : (record.status || "Completed")}
                         </span>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-400">
-                      No historical stays recorded for this room.
-                    </td>
-                  </tr>
-                )}
+                  ));
+                })()}
               </tbody>
             </table>
           </div>
@@ -551,6 +687,145 @@ export default function RoomDetailPage() {
                   className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md shadow-indigo-200 disabled:opacity-60"
                 >
                   {updateStatusMutation.isPending ? "Updating..." : "Save Status"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Modal: Assign TV to Room */}
+        {assignModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                    <Tv className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Assign TV to Room {room.number}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Select a TV device to associate with this room.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAssignModalOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTvDeviceId("")}
+                  className={`w-full p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                    selectedTvDeviceId === ""
+                      ? "border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-100"
+                      : "border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">No TV Assigned</span>
+                    <span className="text-[11px] text-slate-400 block">Release any current TV device</span>
+                  </div>
+                  {selectedTvDeviceId === "" && <Check className="w-4 h-4 text-indigo-600" />}
+                </button>
+
+                {/* Currently assigned TV option */}
+                {assignedTvId && !availableDevices.some((d) => d.id === assignedTvId) && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTvDeviceId(assignedTvId)}
+                    className={`w-full p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                      selectedTvDeviceId === assignedTvId
+                        ? "border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-100"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800 block">
+                          {assignedTvName} (Current)
+                        </span>
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            tvOnline ? "bg-emerald-500" : "bg-slate-300"
+                          }`}
+                        />
+                      </div>
+                      <span className="text-[11px] text-slate-400 block font-mono">
+                        {assignedDeviceId || assignedTvId}
+                      </span>
+                    </div>
+                    {selectedTvDeviceId === assignedTvId && <Check className="w-4 h-4 text-indigo-600" />}
+                  </button>
+                )}
+
+                {availableDevices.map((dev: any) => {
+                  const isDevOnline = dev.status?.toUpperCase() === "ONLINE" || dev.isOnline;
+                  const isSelected = selectedTvDeviceId === dev.id;
+                  return (
+                    <button
+                      key={dev.id}
+                      type="button"
+                      onClick={() => setSelectedTvDeviceId(dev.id)}
+                      className={`w-full p-3 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                        isSelected
+                          ? "border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-100"
+                          : "border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-800 block">
+                            {dev.name || dev.hardwareId || "SmartStay TV"}
+                          </span>
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              isDevOnline ? "bg-emerald-500" : "bg-slate-300"
+                            }`}
+                          />
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {isDevOnline ? "Online" : "Offline"}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-400 block font-mono">
+                          {dev.hardwareId || dev.id}
+                        </span>
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-indigo-600" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAssignModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => assignTvMutation.mutate(selectedTvDeviceId)}
+                  disabled={assignTvMutation.isPending}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+                >
+                  {assignTvMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Assignment</span>
+                  )}
                 </button>
               </div>
             </div>

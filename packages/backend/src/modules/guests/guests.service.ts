@@ -18,7 +18,7 @@ export class GuestsService {
         where,
         include: {
           bookings: {
-            take: 1,
+            take: 5,
             orderBy: { createdAt: 'desc' },
             include: { room: true },
           },
@@ -34,6 +34,34 @@ export class GuestsService {
       guests,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  async deleteGuest(hotelId: string, guestId: string, userId?: string) {
+    const guest = await prisma.guest.findFirst({
+      where: { id: guestId, hotelId, deletedAt: null },
+    });
+    if (!guest) throw new NotFoundError('Guest', guestId);
+
+    await prisma.guest.update({
+      where: { id: guestId },
+      data: { deletedAt: new Date() },
+    });
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          hotelId,
+          userId: userId || null,
+          action: 'GUEST_UPDATED',
+          resource: 'guest',
+          resourceId: guestId,
+          details: { action: 'DELETED', name: `${guest.firstName} ${guest.lastName}` },
+          success: true,
+        },
+      });
+    } catch {}
+
+    return { success: true, message: 'Guest record removed successfully' };
   }
 
   async getGuest(hotelId: string, guestId: string) {

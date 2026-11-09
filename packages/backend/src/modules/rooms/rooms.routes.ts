@@ -33,5 +33,23 @@ export async function roomRoutes(app: FastifyInstance) {
     preHandler: [app.requireRole('OWNER', 'ADMIN')],
     handler: ctrl.deleteRoom.bind(ctrl),
   });
+
+  // Assign TV to room
+  app.post('/rooms/:id/assign-tv', {
+    preHandler: [app.requireRole('OWNER', 'ADMIN', 'RECEPTIONIST')],
+    handler: ctrl.assignTv.bind(ctrl),
+  });
+
+  // Unassign TV from room
+  app.post('/rooms/:id/unassign-tv', {
+    preHandler: [app.requireRole('OWNER', 'ADMIN', 'RECEPTIONIST')],
+    handler: ctrl.unassignTv.bind(ctrl),
+  });
+
+  // Available rooms without an assigned TV
+  app.get('/rooms/available', {
+    preHandler: [app.authenticate],
+    handler: ctrl.getAvailableRooms.bind(ctrl),
+  });
 }
 

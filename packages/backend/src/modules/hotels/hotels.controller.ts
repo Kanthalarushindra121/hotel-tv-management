@@ -66,6 +66,18 @@ export class HotelsController {
     const res = await hotelsService.updateCheckoutSteps(hotelId, steps);
     return reply.send({ success: true, data: res });
   }
+
+  async getScreensaver(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const config = await hotelsService.getScreensaverConfig(hotelId);
+    return reply.send({ success: true, data: config });
+  }
+
+  async updateScreensaver(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const config = await hotelsService.updateScreensaverConfig(hotelId, req.body, req.user.userId);
+    return reply.send({ success: true, data: config });
+  }
 }
 
 export const hotelsController = new HotelsController();

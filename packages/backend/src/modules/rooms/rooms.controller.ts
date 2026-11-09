@@ -46,5 +46,27 @@ export class RoomsController {
     const res = await roomsService.deleteRoom(hotelId, id, req.user.userId);
     return reply.send({ success: true, data: res });
   }
+
+  async assignTv(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const { tvDeviceId } = req.body as { tvDeviceId: string };
+    const res = await roomsService.assignTv(hotelId, id, tvDeviceId, req.user.userId);
+    return reply.send({ success: true, data: res });
+  }
+
+  async unassignTv(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { id } = req.params as { id: string };
+    const res = await roomsService.unassignTv(hotelId, id, req.user.userId);
+    return reply.send({ success: true, data: res });
+  }
+
+  async getAvailableRooms(req: FastifyRequest, reply: FastifyReply) {
+    const hotelId = getTenantHotelId(req);
+    const { devicesService } = await import('../devices/devices.service');
+    const rooms = await devicesService.getAvailableRooms(hotelId);
+    return reply.send({ success: true, data: rooms });
+  }
 }
 

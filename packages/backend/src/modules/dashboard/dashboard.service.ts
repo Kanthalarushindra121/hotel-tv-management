@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database';
+import { redis } from '../../config/redis';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -25,7 +26,23 @@ export interface DashboardStats {
 }
 
 export class DashboardService {
+  async invalidateDashboardCache(hotelId: string) {
+    try {
+      await redis.del(`dashboard:stats:${hotelId}`);
+    } catch {}
+  }
+
   async getDashboardStats(hotelId: string, tz?: string): Promise<DashboardStats> {
+    const cacheKey = `dashboard:stats:${hotelId}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch {
+      // Continue to fetch if cache read fails
+    }
+
     // Determine hotel timezone
     let hotelTz = tz;
     if (!hotelTz) {
@@ -162,7 +179,7 @@ export class DashboardService {
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 10);
 
-    return {
+    const result: DashboardStats = {
       totalRooms,
       occupiedRooms,
       availableRooms,
@@ -179,6 +196,14 @@ export class DashboardService {
       upcomingCheckouts,
       recentActivity,
     };
+
+    try {
+      await redis.setex(cacheKey, 10, JSON.stringify(result));
+    } catch {
+      // Continue if cache write fails
+    }
+
+    return result;
   }
 
   // ─── Recent Activity (recent 20 events) ───────────────────

@@ -25,6 +25,7 @@ if [ ! -f "/opt/gradle/bin/gradle" ]; then
 fi
 
 echo "[3/4] Running Gradle Build for SmartStay TV APK..."
+cd /project
 /opt/gradle/bin/gradle assembleDebug --no-daemon --stacktrace
 
 # 3. Create release directory & copy APK

@@ -51,6 +51,7 @@ export default function ReportsPage() {
 
   const { data: stats, isLoading, refetch } = useQuery({
     queryKey: ["reports-stats", dateRange],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         return await dashboardApi.getStats({ range: dateRange });

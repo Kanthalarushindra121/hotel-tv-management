@@ -118,9 +118,10 @@ async function bootstrap() {
   });
 
   // ─── HTTP + Socket.IO ──────────────────────────────────────
+  const corsOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
   const io = new Server(app.server, {
     cors: {
-      origin: env.CORS_ORIGINS.split(','),
+      origin: env.NODE_ENV !== 'production' ? true : corsOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
     },

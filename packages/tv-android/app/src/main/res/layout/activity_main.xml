@@ -1,364 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/root_tv_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_tv_gradient"
-    android:keepScreenOn="true">
+    android:background="#070712">
 
     <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- 1. GUEST ACTIVE STATE (Personalized In-Stay Greeting)        -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/view_guest_active"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="48dp"
-        android:visibility="gone">
-
-        <!-- Top Header -->
-        <RelativeLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tv_guest_hotel_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:letterSpacing="0.1"
-                    android:text="SMARTSTAY RESORT"
-                    android:textColor="@color/primary_indigo_light"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_guest_welcome_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Welcome, Guest!"
-                    android:textColor="@color/text_white"
-                    android:textSize="48sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentEnd="true"
-                android:gravity="end"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tv_guest_clock"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="10:30 AM"
-                    android:textColor="@color/text_white"
-                    android:textSize="36sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_guest_room_badge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/bg_card_rounded"
-                    android:paddingStart="16dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="16dp"
-                    android:paddingBottom="4dp"
-                    android:text="ROOM 101"
-                    android:textColor="@color/text_white"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-        </RelativeLayout>
-
-        <!-- Center 3 Cards Row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:weightSum="3">
-
-            <!-- Card 1: Reservation Details -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="220dp"
-                android:layout_marginEnd="16dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_card_rounded"
-                android:orientation="vertical"
-                android:padding="24dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:letterSpacing="0.05"
-                    android:text="YOUR RESERVATION"
-                    android:textColor="@color/primary_indigo_light"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_res_checkout_time"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="Checkout: 11:00 AM"
-                    android:textColor="@color/text_white"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_res_concierge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Concierge: Dial 9"
-                    android:textColor="@color/text_muted"
-                    android:textSize="16sp" />
-            </LinearLayout>
-
-            <!-- Card 2: Wi-Fi QR Code Card -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="220dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_card_rounded"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="20dp">
-
-                <ImageView
-                    android:id="@+id/iv_guest_wifi_qr"
-                    android:layout_width="160dp"
-                    android:layout_height="160dp"
-                    android:background="#FFFFFF"
-                    android:padding="8dp"
-                    android:contentDescription="Wi-Fi QR" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:letterSpacing="0.05"
-                        android:text="CONNECT WI-FI"
-                        android:textColor="@color/primary_indigo_light"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tv_guest_wifi_ssid"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:text="Hotel_Guest"
-                        android:textColor="@color/text_white"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Scan with smartphone camera for instant link"
-                        android:textColor="@color/text_muted"
-                        android:textSize="12sp" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Card 3: Amenities Highlights -->
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="220dp"
-                android:layout_marginStart="16dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_card_rounded"
-                android:orientation="vertical"
-                android:padding="24dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:letterSpacing="0.05"
-                    android:text="HOTEL AMENITIES"
-                    android:textColor="@color/primary_indigo_light"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_amenities_list"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:lineSpacingExtra="4dp"
-                    android:text="• Dining (7 AM - 11 PM)\n• Infinity Pool (6 AM - 9 PM)\n• Fitness Center (24/7)"
-                    android:textColor="@color/text_white"
-                    android:textSize="15sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Bottom Remote Navigation Bar -->
-        <RelativeLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingTop="16dp">
-
-            <TextView
-                android:id="@+id/tv_quiet_hours_footer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_centerVertical="true"
-                android:text="Quiet Hours: 10:00 PM – 7:00 AM • Reception: Dial 9"
-                android:textColor="@color/text_muted"
-                android:textSize="14sp" />
-
-            <!-- Focusable Entertainment Launch Button for TV Remote -->
-            <Button
-                android:id="@+id/btn_launch_entertainment"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentEnd="true"
-                android:background="@drawable/btn_tv_remote_selector"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:paddingStart="24dp"
-                android:paddingEnd="24dp"
-                android:text="Open TV &amp; Entertainment"
-                android:textColor="#000000"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-        </RelativeLayout>
-    </LinearLayout>
-
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- 2. DEFAULT HOTEL WELCOME (No guest checked in)              -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/view_default_mode"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="48dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/tv_default_hotel_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="SmartStay Hotel"
-            android:textColor="@color/text_white"
-            android:textSize="54sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_default_tagline"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Welcome to our hospitality experience"
-            android:textColor="@color/primary_indigo_light"
-            android:textSize="22sp" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="36dp"
-            android:background="@drawable/bg_card_rounded"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="24dp">
-
-            <ImageView
-                android:id="@+id/iv_default_wifi_qr"
-                android:layout_width="150dp"
-                android:layout_height="150dp"
-                android:background="#FFFFFF"
-                android:padding="8dp"
-                android:contentDescription="Wi-Fi QR" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="24dp"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="GUEST WI-FI"
-                    android:textColor="@color/primary_indigo_light"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_default_wifi_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="SmartStay_Guest"
-                    android:textColor="@color/text_white"
-                    android:textSize="24sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tv_default_room_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Room TV Ready"
-                    android:textColor="@color/text_muted"
-                    android:textSize="16sp" />
-            </LinearLayout>
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- 3. PAIRING STATE (Connect screen to hotel)                  -->
+    <!-- 1. PAIRING SCREEN (First-time setup only)                   -->
     <!-- ═══════════════════════════════════════════════════════════ -->
     <LinearLayout
         android:id="@+id/view_pairing"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="#070712"
         android:gravity="center"
         android:orientation="vertical"
-        android:padding="48dp"
+        android:padding="32dp"
         android:visibility="gone">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pair This SmartStay TV"
-            android:textColor="@color/text_white"
-            android:textSize="44sp"
+            android:letterSpacing="0.15"
+            android:text="SMARTSTAY TV"
+            android:textColor="@color/primary_indigo_light"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Enter this code in your SmartStay hotel dashboard to connect this TV."
+            android:layout_marginTop="8dp"
+            android:text="Pair This Display with a Hotel Room"
+            android:textColor="@color/text_white"
+            android:textSize="36sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Open the SmartStay hotel dashboard, select TV Devices, and enter this 6-digit code:"
             android:textColor="@color/text_muted"
             android:textSize="18sp" />
 
@@ -367,121 +48,956 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
             android:background="@drawable/bg_card_rounded"
-            android:gravity="center_vertical"
+            android:gravity="center"
             android:orientation="horizontal"
-            android:padding="28dp">
-
-            <TextView
-                android:id="@+id/tv_pairing_code"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:letterSpacing="0.2"
-                android:text="8K29P4"
-                android:textColor="@color/text_white"
-                android:textSize="64sp"
-                android:textStyle="bold" />
+            android:padding="32dp">
 
             <ImageView
                 android:id="@+id/iv_pairing_qr"
-                android:layout_width="120dp"
-                android:layout_height="120dp"
-                android:layout_marginStart="36dp"
+                android:layout_width="160dp"
+                android:layout_height="160dp"
                 android:background="#FFFFFF"
-                android:padding="6dp"
-                android:contentDescription="Pairing QR" />
+                android:contentDescription="Pairing QR"
+                android:padding="8dp"
+                android:scaleType="fitCenter" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="36dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.1"
+                    android:text="PAIRING CODE"
+                    android:textColor="@color/primary_indigo_light"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_pairing_code"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.25"
+                    android:text="------"
+                    android:textColor="@color/text_white"
+                    android:textSize="54sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_pairing_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="● Waiting for hotel staff authorization..."
+                    android:textColor="#34D399"
+                    android:textSize="16sp" />
+            </LinearLayout>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tv_pairing_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Waiting for pairing from Hotel Dashboard..."
-            android:textColor="@color/emerald_accent"
-            android:textSize="16sp" />
     </LinearLayout>
 
     <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- 4. CHECKOUT DAY REMINDER STATE                             -->
+    <!-- 2. MAIN UNIFIED 3-STATE CONTAINER (App + Screensaver)      -->
     <!-- ═══════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/view_checkout_day"
+    <RelativeLayout
+        android:id="@+id/view_main_container"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="48dp"
-        android:visibility="gone">
+        android:padding="32dp"
+        android:visibility="visible">
 
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <!-- TOP HEADER CONTAINER                                        -->
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <FrameLayout
+            android:id="@+id/container_header"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#33F59E0B"
-            android:paddingStart="20dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="20dp"
-            android:paddingBottom="6dp"
-            android:text="DEPARTURE TODAY"
-            android:textColor="@color/amber_warning"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:layout_alignParentTop="true">
 
-        <TextView
-            android:id="@+id/tv_checkout_time_headline"
-            android:layout_width="wrap_content"
+            <!-- State 1 Header: WELCOME TO Hotel (Unoccupied) -->
+            <RelativeLayout
+                android:id="@+id/header_hotel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="visible">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.15"
+                        android:text="WELCOME TO"
+                        android:textColor="@color/primary_indigo_light"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="risky resto"
+                        android:textColor="@color/text_white"
+                        android:textSize="32sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_tagline"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Experience world-class luxury and hospitality."
+                        android:textColor="@color/text_muted"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_card_rounded"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingStart="16dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="6dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.1"
+                            android:text="SMART TV"
+                            android:textColor="@color/text_muted"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_badge_room_hotel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="ROOM 122"
+                            android:textColor="@color/text_white"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:gravity="end"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tv_clock_hotel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.05"
+                            android:text="09:19 AM"
+                            android:textColor="@color/text_white"
+                            android:textSize="26sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_date_hotel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sun, Nov 8"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </RelativeLayout>
+
+            <!-- State 2 Header: Welcome, Guest! (Occupied) -->
+            <RelativeLayout
+                android:id="@+id/header_guest"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_guest_hotel_mini"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.15"
+                        android:text="RISKY RESTO"
+                        android:textColor="@color/primary_indigo_light"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_guest_welcome_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Welcome, Rahul Sharma!"
+                        android:textColor="@color/text_white"
+                        android:textSize="32sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_card_rounded"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:paddingStart="16dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="6dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.1"
+                            android:text="YOUR ROOM"
+                            android:textColor="@color/text_muted"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_badge_room_guest"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="122"
+                            android:textColor="@color/text_white"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:gravity="end"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tv_clock_guest"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:letterSpacing="0.05"
+                            android:text="09:21 AM"
+                            android:textColor="@color/text_white"
+                            android:textSize="26sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_date_guest"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Sun, Nov 8"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </RelativeLayout>
+
+            <!-- State 3 Header: Checkout Complete / Thank You -->
+            <RelativeLayout
+                android:id="@+id/header_checkout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_amber_pill"
+                        android:letterSpacing="0.1"
+                        android:paddingStart="12dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="3dp"
+                        android:text="CHECKOUT COMPLETE"
+                        android:textColor="#FCD34D"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Thank You for Staying with Us!"
+                        android:textColor="@color/text_white"
+                        android:textSize="32sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_checkout_sub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="We hope you had a pleasant stay at risky resto."
+                        android:textColor="@color/text_muted"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tv_clock_checkout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.05"
+                        android:text="09:23 AM"
+                        android:textColor="@color/text_white"
+                        android:textSize="26sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_checkout_room_departure"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Room 122 • Departure"
+                        android:textColor="#FCD34D"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </RelativeLayout>
+        </FrameLayout>
+
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <!-- CENTER CONTENT (3 Cards or Checklist)                       -->
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <FrameLayout
+            android:id="@+id/container_content"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_above="@id/container_footer"
+            android:layout_below="@id/container_header"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="16dp">
+
+            <!-- ─── STATE 1: WELCOME HOTEL (3 CARDS) ─── -->
+            <LinearLayout
+                android:id="@+id/layout_state_hotel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:baselineAligned="false"
+                android:orientation="horizontal"
+                android:visibility="visible">
+
+                <!-- Card 1: Hotel Hospitality -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="12dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="HOTEL HOSPITALITY"
+                        android:textColor="@color/primary_indigo_light"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_hospitality_desc"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="Welcome to our property. Featuring state-of-the-art guest rooms and 24/7 dedicated reception."
+                        android:textColor="#CBD5E1"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_checkout_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="✓ Standard Check-out: 11:00"
+                        android:textColor="@color/primary_indigo_light"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_front_desk_phone"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Front Desk Direct: +91 85559 72884"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Card 2: Guest Wi-Fi (QR Only + "Connect WiFi") -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <ImageView
+                        android:id="@+id/iv_hotel_wifi_qr"
+                        android:layout_width="125dp"
+                        android:layout_height="125dp"
+                        android:background="#FFFFFF"
+                        android:contentDescription="Guest Wi-Fi QR"
+                        android:padding="6dp"
+                        android:scaleType="fitCenter" />
+
+                    <TextView
+                        android:id="@+id/tv_hotel_wifi_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center"
+                        android:letterSpacing="0.05"
+                        android:text="Connect WiFi"
+                        android:textColor="@color/text_white"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Card 3: Hotel Amenities -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <RelativeLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentStart="true"
+                            android:letterSpacing="0.08"
+                            android:text="HOTEL AMENITIES"
+                            android:textColor="@color/primary_indigo_light"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="true"
+                            android:text="PROPERTY FEATURES"
+                            android:textColor="@color/text_muted"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </RelativeLayout>
+
+                    <TextView
+                        android:id="@+id/tv_hotel_amenities_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="• Fitness Center (24/7)\n• Valet Parking (Complimentary)\n• 24/7 Room Service (Dial 9)"
+                        android:textColor="#F1F5F9"
+                        android:textSize="13sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Room Service: Dial 9 on in-room phone."
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ─── STATE 2: WELCOME GUEST (3 CARDS) ─── -->
+            <LinearLayout
+                android:id="@+id/layout_state_guest"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_vertical"
+                android:baselineAligned="false"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <!-- Card 1: Your Reservation -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginEnd="12dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.08"
+                        android:text="YOUR RESERVATION"
+                        android:textColor="@color/primary_indigo_light"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TableLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:stretchColumns="1">
+
+                        <TableRow android:layout_marginBottom="6dp">
+                            <TextView
+                                android:text="Guest"
+                                android:textColor="@color/text_muted"
+                                android:textSize="13sp" />
+                            <TextView
+                                android:id="@+id/tv_res_guest_name"
+                                android:gravity="end"
+                                android:text="Rahul Sharma"
+                                android:textColor="@color/text_white"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </TableRow>
+
+                        <TableRow android:layout_marginBottom="6dp">
+                            <TextView
+                                android:text="Room"
+                                android:textColor="@color/text_muted"
+                                android:textSize="13sp" />
+                            <TextView
+                                android:id="@+id/tv_res_room_num"
+                                android:gravity="end"
+                                android:text="122"
+                                android:textColor="@color/text_white"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </TableRow>
+
+                        <TableRow android:layout_marginBottom="6dp">
+                            <TextView
+                                android:text="Checkout"
+                                android:textColor="@color/text_muted"
+                                android:textSize="13sp" />
+                            <TextView
+                                android:id="@+id/tv_res_checkout_val"
+                                android:gravity="end"
+                                android:text="By 11:00"
+                                android:textColor="#FCD34D"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </TableRow>
+
+                        <TableRow>
+                            <TextView
+                                android:text="Front Desk"
+                                android:textColor="@color/text_muted"
+                                android:textSize="13sp" />
+                            <TextView
+                                android:gravity="end"
+                                android:text="Dial 9"
+                                android:textColor="@color/text_white"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+                        </TableRow>
+                    </TableLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Need express checkout? Contact Reception."
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Card 2: In-Room Wi-Fi (QR Only + "Connect WiFi") -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <ImageView
+                        android:id="@+id/iv_guest_wifi_qr"
+                        android:layout_width="125dp"
+                        android:layout_height="125dp"
+                        android:background="#FFFFFF"
+                        android:contentDescription="In-Room Wi-Fi QR"
+                        android:padding="6dp"
+                        android:scaleType="fitCenter" />
+
+                    <TextView
+                        android:id="@+id/tv_guest_wifi_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center"
+                        android:letterSpacing="0.05"
+                        android:text="Connect WiFi"
+                        android:textColor="@color/text_white"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Card 3: Hotel Amenities / Guest Services -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card_rounded"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <RelativeLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentStart="true"
+                            android:letterSpacing="0.08"
+                            android:text="HOTEL AMENITIES"
+                            android:textColor="@color/primary_indigo_light"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="true"
+                            android:text="GUEST SERVICES"
+                            android:textColor="@color/text_muted"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </RelativeLayout>
+
+                    <TextView
+                        android:id="@+id/tv_guest_amenities_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="• Fitness Center (24/7)\n• Valet Parking (Complimentary)\n• 24/7 Room Service (Dial 9)"
+                        android:textColor="#F1F5F9"
+                        android:textSize="13sp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Dial 9 for In-Room Dining &amp; Concierge"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ─── STATE 3: CHECKOUT THANK YOU (CHECKLIST CARD) ─── -->
+            <LinearLayout
+                android:id="@+id/layout_state_checkout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_card_rounded"
+                android:orientation="vertical"
+                android:padding="28dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.1"
+                    android:text="DEPARTURE REMINDERS"
+                    android:textColor="@color/primary_indigo_light"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <!-- Step 1 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:background="@drawable/bg_number_circle"
+                        android:gravity="center"
+                        android:text="1"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:text="Please check the room and safe for all personal belongings and chargers."
+                        android:textColor="#E2E8F0"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <!-- Step 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:background="@drawable/bg_number_circle"
+                        android:gravity="center"
+                        android:text="2"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:text="Switch off the air conditioner, lights, and ensure faucets are closed."
+                        android:textColor="#E2E8F0"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <!-- Step 3 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:background="@drawable/bg_number_circle"
+                        android:gravity="center"
+                        android:text="3"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:text="Hand over your room key card at the front desk / reception box."
+                        android:textColor="#E2E8F0"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:paddingTop="14dp">
+
+                    <TextView
+                        android:id="@+id/tv_checkout_luggage_phone"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentStart="true"
+                        android:layout_centerVertical="true"
+                        android:text="📞 Need luggage or airport transfer assistance? Reception: +91 85559 72884"
+                        android:textColor="#CBD5E1"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btn_checkout_return"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_alignParentEnd="true"
+                        android:layout_centerVertical="true"
+                        android:background="@drawable/btn_tv_remote_selector"
+                        android:focusable="true"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="Return to Welcome Screen"
+                        android:textColor="#000000"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </RelativeLayout>
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <!-- BOTTOM FOOTER CONTAINER                                     -->
+        <!-- ─────────────────────────────────────────────────────────── -->
+        <FrameLayout
+            android:id="@+id/container_footer"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Checkout Today by 11:00 AM"
-            android:textColor="@color/text_white"
-            android:textSize="48sp"
-            android:textStyle="bold" />
+            android:layout_alignParentBottom="true">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Thank you for staying with us. Contact front desk (dial 9) for express check-out or luggage assistance."
-            android:textColor="@color/text_muted"
-            android:textSize="18sp" />
-    </LinearLayout>
+            <!-- Footer for State 1 & 2 -->
+            <RelativeLayout
+                android:id="@+id/footer_normal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:visibility="visible">
 
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <!-- 5. SCREENSAVER STATE                                       -->
-    <!-- ═══════════════════════════════════════════════════════════ -->
-    <LinearLayout
-        android:id="@+id/view_screensaver"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:visibility="gone">
+                <TextView
+                    android:id="@+id/tv_footer_quiet_reception"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:text="Quiet Hours: 22:00 – 07:00 • Reception Desk: +91 85559 72884"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
 
-        <TextView
-            android:id="@+id/tv_screensaver_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="10:30"
-            android:textColor="#CCFFFFFF"
-            android:textSize="96sp"
-            android:textStyle="bold" />
+                <!-- State 1: Remote wake hint -->
+                <TextView
+                    android:id="@+id/tv_footer_wake_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="Press any button on TV remote to wake screen"
+                    android:textColor="#66FFFFFF"
+                    android:textSize="13sp"
+                    android:visibility="visible" />
 
-        <TextView
-            android:id="@+id/tv_screensaver_hotel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="SmartStay TV"
-            android:textColor="@color/primary_indigo_light"
-            android:textSize="22sp" />
+                <!-- State 2: Open TV Applications button -->
+                <Button
+                    android:id="@+id/btn_launch_entertainment"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:background="@drawable/btn_tv_remote_selector"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:text="▶  Press Select on Remote to Open TV Applications"
+                    android:textColor="#000000"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </RelativeLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="48dp"
-            android:text="Press any key on TV remote to wake screen"
-            android:textColor="#66FFFFFF"
-            android:textSize="14sp" />
-    </LinearLayout>
+            <!-- Footer for State 3 (Checkout Complete) -->
+            <RelativeLayout
+                android:id="@+id/footer_checkout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:visibility="gone">
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:text="SmartStay TV • Safe Travels &amp; Have a Wonderful Journey"
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="Reverting to Hotel Welcome Screen when room is prepared"
+                    android:textColor="#66FFFFFF"
+                    android:textSize="13sp" />
+            </RelativeLayout>
+        </FrameLayout>
+    </RelativeLayout>
 </FrameLayout>
-

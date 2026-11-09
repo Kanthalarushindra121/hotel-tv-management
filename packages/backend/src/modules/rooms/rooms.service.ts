@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database';
 import { AppError, NotFoundError, ConflictError } from '../../core/errors';
 import { RoomStatus } from '@prisma/client';
+import { dashboardService } from '../dashboard/dashboard.service';
 
 export class RoomsService {
   async getRooms(hotelId: string, filters?: { status?: RoomStatus; floor?: number }) {
@@ -8,10 +9,11 @@ export class RoomsService {
     if (filters?.status) where.status = filters.status;
     if (filters?.floor !== undefined) where.floor = filters.floor;
 
-    return prisma.room.findMany({
+    const rooms = await prisma.room.findMany({
       where,
       include: {
         roomType: true,
+        wifiZone: true,
         device: {
           select: {
             id: true,
@@ -39,6 +41,14 @@ export class RoomsService {
       },
       orderBy: { roomNumber: 'asc' },
     });
+
+    return rooms.map((r: any) => ({
+      ...r,
+      number: r.roomNumber,
+      roomNumber: r.roomNumber,
+      type: r.roomType?.name || 'Standard Room',
+      capacity: r.maxOccupancy || 2,
+    }));
   }
 
   async getRoom(hotelId: string, roomId: string) {
@@ -47,11 +57,12 @@ export class RoomsService {
       include: {
         roomType: true,
         device: true,
+        wifiZone: true,
         currentBooking: {
           include: { guest: true },
         },
         bookings: {
-          take: 10,
+          take: 25,
           orderBy: { createdAt: 'desc' },
           include: { guest: true },
         },
@@ -59,7 +70,26 @@ export class RoomsService {
     });
 
     if (!room) throw new NotFoundError('Room', roomId);
-    return room;
+
+    const history = (room.bookings || []).map((b: any) => ({
+      id: b.id,
+      guestName: b.guest ? `${b.guest.firstName || ''} ${b.guest.lastName || ''}`.trim() : 'Guest',
+      guestPhone: b.guest?.phone || '—',
+      guestEmail: b.guest?.email || '—',
+      checkIn: new Date(b.checkInDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }),
+      checkOut: new Date(b.checkOutDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }),
+      nights: b.nights || 1,
+      status: b.status,
+    }));
+
+    return {
+      ...room,
+      number: room.roomNumber,
+      roomNumber: room.roomNumber,
+      type: room.roomType?.name || 'Standard Room',
+      capacity: room.maxOccupancy || 2,
+      history,
+    };
   }
 
   async createRoom(
@@ -83,27 +113,49 @@ export class RoomsService {
       throw new AppError('Room number is required', 400);
     }
 
-    const existing = await prisma.room.findFirst({
-      where: { hotelId, roomNumber, deletedAt: null },
-    });
-    if (existing) {
-      throw new ConflictError(`Room ${roomNumber} already exists`);
-    }
-
     const floorNum = data.floor !== undefined ? Number(data.floor) : 1;
     const capacityNum = data.maxOccupancy ?? data.capacity ?? 2;
 
-    const room = await prisma.room.create({
-      data: {
-        hotelId,
-        roomNumber,
-        floor: floorNum,
-        roomTypeId: data.roomTypeId,
-        maxOccupancy: capacityNum,
-        notes: data.notes,
-      },
-      include: { roomType: true },
-    });
+    // Check if room already exists (including soft-deleted rooms that share the unique constraint)
+    const existingRaw = await prisma.$queryRaw<Array<{ id: string; deletedAt: Date | null }>>`
+      SELECT id, "deletedAt" FROM "rooms" 
+      WHERE "hotelId" = ${hotelId} AND "roomNumber" = ${roomNumber}
+      LIMIT 1
+    `;
+
+    let room: any;
+    if (existingRaw.length > 0) {
+      if (existingRaw[0].deletedAt === null) {
+        throw new ConflictError(`Room ${roomNumber} already exists`);
+      }
+      // Room was previously deleted: reactivate and update its configuration
+      room = await prisma.room.update({
+        where: { id: existingRaw[0].id },
+        data: {
+          deletedAt: null,
+          status: 'AVAILABLE',
+          floor: floorNum,
+          roomTypeId: data.roomTypeId || null,
+          maxOccupancy: capacityNum,
+          notes: data.notes || '',
+          wifiZoneId: null,
+          currentBookingId: null,
+        },
+        include: { roomType: true },
+      });
+    } else {
+      room = await prisma.room.create({
+        data: {
+          hotelId,
+          roomNumber,
+          floor: floorNum,
+          roomTypeId: data.roomTypeId,
+          maxOccupancy: capacityNum,
+          notes: data.notes,
+        },
+        include: { roomType: true },
+      });
+    }
 
     // If TV pairing code was validated and provided, link TV device immediately
     let pairedDevice: any = null;
@@ -122,17 +174,23 @@ export class RoomsService {
       }
     }
 
-    await prisma.auditLog.create({
-      data: {
-        hotelId,
-        userId,
-        action: 'ROOM_CREATED',
-        resource: 'room',
-        resourceId: room.id,
-        details: { roomNumber: room.roomNumber, tvPaired: !!pairedDevice },
-        success: true,
-      },
-    });
+    try {
+      await prisma.auditLog.create({
+        data: {
+          hotelId,
+          userId: userId || null,
+          action: 'ROOM_CREATED',
+          resource: 'room',
+          resourceId: room.id,
+          details: { roomNumber: room.roomNumber, tvPaired: !!pairedDevice },
+          success: true,
+        },
+      });
+    } catch (e) {
+      console.warn('AuditLog warning during createRoom:', e);
+    }
+
+    dashboardService.invalidateDashboardCache(hotelId);
 
     return {
       ...room,
@@ -145,10 +203,25 @@ export class RoomsService {
     for (const num of roomNumbers) {
       const trimmed = num.trim();
       if (!trimmed) continue;
-      const existing = await prisma.room.findFirst({
-        where: { hotelId, roomNumber: trimmed, deletedAt: null },
-      });
-      if (!existing) {
+      const existingRaw = await prisma.$queryRaw<Array<{ id: string; deletedAt: Date | null }>>`
+        SELECT id, "deletedAt" FROM "rooms" 
+        WHERE "hotelId" = ${hotelId} AND "roomNumber" = ${trimmed}
+        LIMIT 1
+      `;
+      if (existingRaw.length > 0) {
+        if (existingRaw[0].deletedAt !== null) {
+          // Reactivate soft-deleted room
+          const room = await prisma.room.update({
+            where: { id: existingRaw[0].id },
+            data: {
+              deletedAt: null,
+              status: 'AVAILABLE',
+              floor,
+            },
+          });
+          created.push(room);
+        }
+      } else {
         const room = await prisma.room.create({
           data: {
             hotelId,
@@ -160,35 +233,81 @@ export class RoomsService {
       }
     }
 
-    await prisma.auditLog.create({
-      data: {
-        hotelId,
-        userId,
-        action: 'ROOM_CREATED',
-        resource: 'room',
-        details: { bulkCount: created.length },
-        success: true,
-      },
-    });
+    try {
+      await prisma.auditLog.create({
+        data: {
+          hotelId,
+          userId: userId || null,
+          action: 'ROOM_CREATED',
+          resource: 'room',
+          details: { bulkCount: created.length },
+          success: true,
+        },
+      });
+    } catch (e) {
+      console.warn('AuditLog warning during createRoomsBulk:', e);
+    }
 
+    dashboardService.invalidateDashboardCache(hotelId);
     return created;
   }
 
   async updateRoom(
     hotelId: string,
     roomId: string,
-    data: { roomNumber?: string; floor?: number; status?: RoomStatus; notes?: string },
+    data: {
+      roomNumber?: string;
+      number?: string;
+      floor?: number;
+      status?: RoomStatus;
+      roomTypeId?: string;
+      maxOccupancy?: number;
+      capacity?: number;
+      notes?: string;
+      wifiZoneId?: string | null;
+      assignedTvId?: string | null;
+    },
     userId: string
   ) {
     const room = await prisma.room.findFirst({
       where: { id: roomId, hotelId, deletedAt: null },
+      include: { device: true },
     });
     if (!room) throw new NotFoundError('Room', roomId);
 
+    const { assignedTvId, number, capacity, ...rest } = data;
+    const roomUpdateData: any = { ...rest };
+    if (number && !roomUpdateData.roomNumber) {
+      roomUpdateData.roomNumber = number;
+    }
+    if (capacity !== undefined && roomUpdateData.maxOccupancy === undefined) {
+      roomUpdateData.maxOccupancy = Number(capacity);
+    }
+    if (roomUpdateData.floor !== undefined) {
+      roomUpdateData.floor = Number(roomUpdateData.floor);
+    }
+
     const updated = await prisma.room.update({
       where: { id: roomId },
-      data,
+      data: roomUpdateData,
+      include: {
+        roomType: true,
+        device: true,
+        wifiZone: true,
+      },
     });
+
+    // Handle TV assignment changes atomically
+    if (assignedTvId !== undefined) {
+      const { devicesService } = await import('../devices/devices.service');
+      if (assignedTvId === null || assignedTvId === '' || assignedTvId === 'UNASSIGN') {
+        if (room.device) {
+          await devicesService.unassignDevice(hotelId, room.device.id, userId);
+        }
+      } else if (assignedTvId && (!room.device || room.device.id !== assignedTvId)) {
+        await devicesService.assignDeviceToRoom(hotelId, assignedTvId, roomId, userId, true);
+      }
+    }
 
     await prisma.auditLog.create({
       data: {
@@ -202,7 +321,35 @@ export class RoomsService {
       },
     });
 
-    return updated;
+    dashboardService.invalidateDashboardCache(hotelId);
+
+    return prisma.room.findUnique({
+      where: { id: roomId },
+      include: {
+        roomType: true,
+        device: true,
+        wifiZone: true,
+        currentBooking: { include: { guest: true } },
+      },
+    });
+  }
+
+  async assignTv(hotelId: string, roomId: string, tvDeviceId: string, userId: string) {
+    const { devicesService } = await import('../devices/devices.service');
+    return devicesService.assignDeviceToRoom(hotelId, tvDeviceId, roomId, userId, true);
+  }
+
+  async unassignTv(hotelId: string, roomId: string, userId: string) {
+    const room = await prisma.room.findFirst({
+      where: { id: roomId, hotelId, deletedAt: null },
+      include: { device: true },
+    });
+    if (!room) throw new NotFoundError('Room', roomId);
+    if (!room.device) {
+      return { success: true, message: 'No TV device assigned to this room' };
+    }
+    const { devicesService } = await import('../devices/devices.service');
+    return devicesService.unassignDevice(hotelId, room.device.id, userId);
   }
 
   async deleteRoom(hotelId: string, roomId: string, userId: string) {
@@ -254,6 +401,8 @@ export class RoomsService {
         },
       });
     });
+
+    dashboardService.invalidateDashboardCache(hotelId);
 
     return { success: true, message: `Room ${room.roomNumber} has been safely deleted.` };
   }

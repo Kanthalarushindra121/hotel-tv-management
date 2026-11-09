@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   UserCog,
@@ -17,6 +17,8 @@ import {
   RefreshCw,
   Lock,
   User,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -27,6 +29,7 @@ export default function StaffPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [deleteModalStaff, setDeleteModalStaff] = useState<StaffDTO | null>(null);
 
   // Form state
   const [newStaff, setNewStaff] = useState({
@@ -40,6 +43,7 @@ export default function StaffPage() {
 
   const { data: serverStaff, isLoading, refetch } = useQuery({
     queryKey: ["staff"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       try {
         const data = await staffApi.getAll();
@@ -95,6 +99,25 @@ export default function StaffPage() {
     },
   });
 
+  // Delete Staff Mutation
+  const deleteStaffMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return await staffApi.delete(userId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["staff"] });
+      toast.success("Staff Account Deleted", {
+        description: "The staff account has been permanently removed.",
+      });
+      setDeleteModalStaff(null);
+    },
+    onError: (err: any) => {
+      toast.error("Failed to delete staff member", {
+        description: err.response?.data?.message || err.message,
+      });
+    },
+  });
+
   const renderRoleBadge = (role: string) => {
     switch (role.toUpperCase()) {
       case "OWNER":
@@ -124,16 +147,19 @@ export default function StaffPage() {
     }
   };
 
-  const filteredStaff = staffList.filter((s) => {
-    if (roleFilter !== "ALL" && s.role.toUpperCase() !== roleFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const name = `${s.firstName} ${s.lastName}`.toLowerCase();
-      const email = s.email.toLowerCase();
-      return name.includes(q) || email.includes(q);
-    }
-    return true;
-  });
+  const filteredStaff = useMemo(() => {
+    const list: StaffDTO[] = serverStaff || [];
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter((s) => {
+      if (roleFilter !== "ALL" && s.role.toUpperCase() !== roleFilter) return false;
+      if (q) {
+        const name = `${s.firstName} ${s.lastName}`.toLowerCase();
+        const email = s.email.toLowerCase();
+        return name.includes(q) || email.includes(q);
+      }
+      return true;
+    });
+  }, [serverStaff, roleFilter, searchQuery]);
 
   return (
     <DashboardLayout>
@@ -312,16 +338,30 @@ export default function StaffPage() {
 
                       {/* Actions */}
                       <td className="py-3.5 px-6 text-right">
-                        <button
-                          onClick={() =>
-                            toast.info("Password Reset", {
-                              description: `A reset link was dispatched to ${member.email}.`,
-                            })
-                          }
-                          className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
-                        >
-                          Reset Password
-                        </button>
+                        <div className="flex items-center justify-end gap-2.5">
+                          <button
+                            onClick={() =>
+                              toast.info("Password Reset", {
+                                description: `A reset link was dispatched to ${member.email}.`,
+                              })
+                            }
+                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                          >
+                            Reset Password
+                          </button>
+
+                          {member.role !== "OWNER" ? (
+                            <button
+                              onClick={() => setDeleteModalStaff(member)}
+                              title="Delete staff account"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">Primary</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -482,6 +522,56 @@ export default function StaffPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+        {/* Modal: Delete Staff Confirmation */}
+        {deleteModalStaff && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Delete Staff Account?
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Are you sure you want to permanently delete account for{" "}
+                  <strong>
+                    {deleteModalStaff.firstName} {deleteModalStaff.lastName}
+                  </strong>{" "}
+                  ({deleteModalStaff.email})? This staff member will immediately lose all dashboard access.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteModalStaff(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteStaffMutation.mutate(deleteModalStaff.id)}
+                  disabled={deleteStaffMutation.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+                >
+                  {deleteStaffMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Account</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}

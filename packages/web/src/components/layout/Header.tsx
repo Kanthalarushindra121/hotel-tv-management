@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, memo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import {
@@ -31,7 +31,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle?: string }> = {
   "/settings": { title: "Hotel Preferences", subtitle: "Branding, amenities, quiet hours & TV appearance" },
 };
 
-export function Header({ onToggleMobileMenu }: HeaderProps) {
+function HeaderComponent({ onToggleMobileMenu }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, hotel, clearAuth } = useAuthStore();
@@ -202,3 +202,5 @@ export function Header({ onToggleMobileMenu }: HeaderProps) {
     </header>
   );
 }
+
+export const Header = memo(HeaderComponent);

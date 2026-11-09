@@ -277,6 +277,7 @@ model Hotel {
   wifiZones       WifiZone[]
   checkoutPolicies CheckoutPolicy[]
   checkoutReminders CheckoutReminder[]
+  screensaverConfig ScreensaverConfig?
   
   // Timestamps
   createdAt       DateTime @default(now())
@@ -316,6 +317,44 @@ model HotelSettings {
   updatedAt        DateTime @updatedAt
 
   @@map("hotel_settings")
+}
+
+model ScreensaverConfig {
+  id                     String   @id @default(uuid())
+  hotelId                String   @unique
+  hotel                  Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  
+  isEnabled              Boolean  @default(true)
+  idleTimeout            Int      @default(300) // seconds (default 5 min = 300s)
+  
+  // Display toggles
+  showClock              Boolean  @default(true)
+  showDate               Boolean  @default(true)
+  showRoomNumber         Boolean  @default(true)
+  showGuestName          Boolean  @default(true)
+  showHotelLogo          Boolean  @default(true)
+  showFacilities         Boolean  @default(true)
+  showWeather            Boolean  @default(false)
+  
+  // Mode 1: Guest / Occupied Screensaver
+  guestWelcomeTitle      String   @default("Welcome, {guestName}!")
+  guestWelcomeSubtitle   String   @default("We hope you enjoy your comfortable stay with us.")
+  guestPromoText         String   @default("Dial 9 for 24/7 Concierge and In-Room Dining.")
+  guestBackgroundUrl     String?
+  
+  // Mode 2: Default / Unoccupied Screensaver
+  defaultWelcomeTitle    String   @default("Welcome to {hotelName}")
+  defaultWelcomeSubtitle String   @default("Experience world-class luxury and personalized hospitality.")
+  defaultPromoText       String   @default("Scan the Wi-Fi QR code with your smartphone for high-speed internet.")
+  defaultBackgroundUrl   String?
+  
+  // Background image collection (JSON string or array)
+  backgroundImages       String?  // JSON string e.g. ["url1", "url2"]
+  
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@map("screensaver_configs")
 }
 
 model WifiSettings {

@@ -3,6 +3,7 @@ import { AppError, NotFoundError, ConflictError } from '../../core/errors';
 import { emitToHotel, emitToDevice, SOCKET_EVENTS } from '../../core/realtime/socket';
 import { devicesService } from '../devices/devices.service';
 import { auditService } from '../audit/audit.service';
+import { dashboardService } from '../dashboard/dashboard.service';
 import { scheduleCheckoutReminder, cancelCheckoutReminder } from '../../core/jobs/reminder.queue';
 import { env } from '../../config/env';
 import dayjs from 'dayjs';
@@ -29,9 +30,10 @@ export class CheckinService {
     specialRequests?: string;
     internalNotes?: string;
     source?: 'MANUAL' | 'PMS' | 'API';
+    forceCheckIn?: boolean;
   }, performedById: string) {
     // Validate room belongs to hotel
-    const room = await prisma.room.findFirst({
+    let room = await prisma.room.findFirst({
       where: { id: data.roomId, hotelId, deletedAt: null },
       include: {
         currentBooking: { include: { guest: true } },
@@ -41,37 +43,78 @@ export class CheckinService {
 
     if (!room) throw new NotFoundError('Room', data.roomId);
 
-    // Check for active booking conflict
+    // 1. Auto-complete any expired bookings on this room whose checkout has passed
+    await prisma.booking.updateMany({
+      where: {
+        roomId: data.roomId,
+        hotelId,
+        status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+        checkOutDate: { lte: new Date() },
+        deletedAt: null,
+      },
+      data: { status: 'CHECKED_OUT', actualCheckoutAt: new Date() },
+    });
+
+    // 2. Check for active booking conflict on room
     if (room.currentBooking) {
-      throw new ConflictError(
-        `Room ${room.roomNumber} already has an active guest: ${room.currentBooking.guest.firstName} ${room.currentBooking.guest.lastName}. Check them out first.`
-      );
+      const isExpired = new Date(room.currentBooking.checkOutDate).getTime() <= Date.now();
+      if (isExpired || data.forceCheckIn) {
+        await prisma.booking.update({
+          where: { id: room.currentBooking.id },
+          data: { status: 'CHECKED_OUT', actualCheckoutAt: new Date() },
+        });
+        await prisma.room.update({
+          where: { id: room.id },
+          data: { currentBookingId: null, status: 'AVAILABLE' },
+        });
+        room.currentBooking = null;
+      } else {
+        throw new ConflictError(
+          `Room ${room.roomNumber} already has an active guest: ${room.currentBooking.guest.firstName} ${room.currentBooking.guest.lastName}. Check them out first.`
+        );
+      }
     }
 
-    // Check for overlapping bookings
+    // 3. Check for overlapping non-expired active bookings
     const overlapping = await prisma.booking.findFirst({
       where: {
         roomId: data.roomId,
         hotelId,
         status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+        checkOutDate: { gt: new Date() },
         deletedAt: null,
         OR: [
           {
-            checkInDate: { lte: data.checkOutDate },
-            checkOutDate: { gte: data.checkInDate },
+            checkInDate: { lt: data.checkOutDate },
+            checkOutDate: { gt: data.checkInDate },
           },
         ],
       },
+      include: { guest: true },
     });
+
     if (overlapping) {
-      throw new ConflictError('Room has an overlapping booking for the selected dates');
+      if (data.forceCheckIn) {
+        await prisma.booking.update({
+          where: { id: overlapping.id },
+          data: { status: 'CHECKED_OUT', actualCheckoutAt: new Date() },
+        });
+      } else {
+        throw new ConflictError(
+          `Room ${room.roomNumber} has an active booking for ${overlapping.guest.firstName} ${overlapping.guest.lastName} until ${new Date(overlapping.checkOutDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}. Please check them out or confirm replacement.`
+        );
+      }
     }
 
-    // Calculate nights
-    const nights = dayjs(data.checkOutDate).diff(dayjs(data.checkInDate), 'day');
-    if (nights <= 0) {
-      throw new AppError('Checkout date must be after check-in date', 400);
+    const checkInMs = new Date(data.checkInDate).getTime();
+    const checkOutMs = new Date(data.checkOutDate).getTime();
+    if (isNaN(checkInMs) || isNaN(checkOutMs) || checkOutMs <= checkInMs) {
+      throw new AppError('Checkout date and time must be after check-in date and time', 400);
     }
+
+    // Calculate nights (at least 1 for billing/record purposes, e.g. for hourly stays)
+    const diffDays = dayjs(data.checkOutDate).diff(dayjs(data.checkInDate), 'day', true);
+    const nights = Math.max(1, Math.round(diffDays));
 
     const result = await prisma.$transaction(async (tx) => {
       // Create or find guest
@@ -190,13 +233,18 @@ export class CheckinService {
       where: { roomId: data.roomId, deletedAt: null },
     });
 
-    if (device?.isOnline) {
-      // Send personalized guest data to TV
-      emitToDevice(device.id, SOCKET_EVENTS.GUEST_CHECKED_IN, {
+    if (device) {
+      // Send personalized guest data to TV immediately
+      const tvPayload = {
+        guestName: result.guest.firstName,
         guest: {
+          id: result.guest.id,
           firstName: result.guest.firstName,
-          // Only send first name to TV — privacy
+          lastName: result.guest.lastName,
+          name: `${result.guest.firstName} ${result.guest.lastName}`.trim(),
         },
+        roomNumber: room.roomNumber,
+        checkoutTime: hotel?.settings?.checkOutTime || '11:00 AM',
         booking: {
           id: result.booking.id,
           roomNumber: room.roomNumber,
@@ -204,10 +252,16 @@ export class CheckinService {
           checkOutDate: data.checkOutDate,
           nights,
           guestCount: data.guestCount || 1,
-          checkOutTime: hotel?.settings?.checkOutTime || '11:00',
+          checkOutTime: hotel?.settings?.checkOutTime || '11:00 AM',
         },
         hotel: await devicesService.getHotelTvPayload(hotelId, data.roomId),
-      });
+      };
+      emitToDevice(device.id, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
+      emitToDevice(device.id, 'guest.checked_in', tvPayload);
+      if (device.deviceId && device.deviceId !== device.id) {
+        emitToDevice(device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
+        emitToDevice(device.deviceId, 'guest.checked_in', tvPayload);
+      }
     }
 
     // Notify all hotel dashboard users
@@ -241,6 +295,9 @@ export class CheckinService {
       data.checkOutDate,
       reminderMinutes
     );
+
+    // Invalidate dashboard stats cache
+    dashboardService.invalidateDashboardCache(hotelId);
 
     return result.booking;
   }
@@ -311,12 +368,20 @@ export class CheckinService {
     });
 
     // ─── Emit real-time events ────────────────────────────
-    if (booking.room.device?.isOnline) {
+    if (booking.room.device) {
       // Tell TV to clear guest data and return to default
-      emitToDevice(booking.room.device.id, SOCKET_EVENTS.GUEST_CHECKED_OUT, {
+      const clearPayload = {
         bookingId,
+        action: 'CLEAR_GUEST',
+        roomNumber: booking.room.roomNumber,
         timestamp: new Date().toISOString(),
-      });
+      };
+      emitToDevice(booking.room.device.id, SOCKET_EVENTS.GUEST_CHECKED_OUT, clearPayload);
+      emitToDevice(booking.room.device.id, 'guest.checked_out', clearPayload);
+      if (booking.room.device.deviceId && booking.room.device.deviceId !== booking.room.device.id) {
+        emitToDevice(booking.room.device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_OUT, clearPayload);
+        emitToDevice(booking.room.device.deviceId, 'guest.checked_out', clearPayload);
+      }
     }
 
     // Notify hotel dashboard
@@ -342,6 +407,9 @@ export class CheckinService {
 
     // Cancel any pending checkout reminder
     await cancelCheckoutReminder(bookingId);
+
+    // Invalidate dashboard stats cache
+    dashboardService.invalidateDashboardCache(hotelId);
 
     return { success: true, message: 'Checkout completed' };
   }
