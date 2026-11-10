@@ -1137,10 +1137,19 @@ export class DevicesService {
   }
 
   private async getDefaultHotelId(): Promise<string> {
-    // For unpaired devices — assign to a placeholder
-    // In practice the hotel is set during confirmation
-    const hotel = await prisma.hotel.findFirst({ orderBy: { createdAt: 'asc' } });
-    if (!hotel) throw new AppError('No hotels found in system', 500);
+    // For unpaired devices — assign to default or auto-create placeholder hotel
+    let hotel = await prisma.hotel.findFirst({ orderBy: { createdAt: 'asc' } });
+    if (!hotel) {
+      hotel = await prisma.hotel.create({
+        data: {
+          name: 'SmartStay Hotel',
+          slug: 'smartstay-hotel-' + Date.now(),
+          phone: '+91 800 555 0199',
+          email: 'contact@smartstay.com',
+          country: 'India',
+        },
+      });
+    }
     return hotel.id;
   }
 }

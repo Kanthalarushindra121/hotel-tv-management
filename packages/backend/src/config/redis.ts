@@ -86,17 +86,14 @@ export const redis: any = new Proxy(redisClient, {
     if (typeof original !== 'function') return original;
 
     return async (...args: any[]) => {
+      if (isUsingMemoryFallback || target.status !== 'ready') {
+        return await (memoryStore as any)[prop]?.(...args);
+      }
       try {
-        if (target.status !== 'ready' && target.status !== 'connecting') {
-          return await (memoryStore as any)[prop]?.(...args);
-        }
         return await original.apply(target, args);
       } catch (err: any) {
-        if (err.code === 'ECONNREFUSED' || err.message?.includes('connect')) {
-          isUsingMemoryFallback = true;
-          return await (memoryStore as any)[prop]?.(...args);
-        }
-        throw err;
+        isUsingMemoryFallback = true;
+        return await (memoryStore as any)[prop]?.(...args);
       }
     };
   },
