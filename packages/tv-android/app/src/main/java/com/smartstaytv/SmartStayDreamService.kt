@@ -389,12 +389,25 @@ class SmartStayDreamService : DreamService() {
                 socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
             }
 
+            // REAL-TIME PAIRING
+            val onPaired = { _: Array<Any> ->
+                prefs.edit().putBoolean("is_paired", true).apply()
+                socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
+            }
+            socket?.on("device.paired") { onPaired(it) }
+            socket?.on("DEVICE_PAIRED") { onPaired(it) }
+
             // GUEST CHECKED IN -> Instantly update screensaver to Welcome Guest (Image 2)
             val onCheckin = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
-                        val guestName = data.optString("guestName", "Guest")
+                        val guestObj = data.optJSONObject("guest")
+                        val guestName = if (data.has("guestName")) {
+                            data.optString("guestName", "Guest")
+                        } else {
+                            guestObj?.optString("name", guestObj.optString("firstName", "Guest")) ?: "Guest"
+                        }
                         val roomNum = data.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")
                         val checkoutTime = data.optString("checkoutTime", "11:00")
 
@@ -449,14 +462,20 @@ class SmartStayDreamService : DreamService() {
             val onContentUpdated = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
-                    if (data != null) {
+                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings"))) {
                         handler.post { applyServerPayload(data) }
+                    } else {
+                        socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
                     }
+                } else {
+                    socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
                 }
             }
             socket?.on("content.updated") { onContentUpdated(it) }
             socket?.on("CONTENT_UPDATED") { onContentUpdated(it) }
             socket?.on("screen.refresh") { onContentUpdated(it) }
+            socket?.on("hotel.settings.updated") { onContentUpdated(it) }
+            socket?.on("hotel.screensaver.updated") { onContentUpdated(it) }
 
             socket?.connect()
         } catch (e: Exception) {
@@ -477,6 +496,9 @@ class SmartStayDreamService : DreamService() {
             val settings = data.optJSONObject("settings")
             val checkout = settings?.optString("checkOutTime", "11:00") ?: "11:00"
             val phone = settings?.optString("receptionPhone", "+91 85559 72884") ?: "+91 85559 72884"
+            val qStart = settings?.optString("quietHoursStart", "22:00") ?: "22:00"
+            val qEnd = settings?.optString("quietHoursEnd", "07:00") ?: "07:00"
+            val quietHours = "$qStart – $qEnd"
 
             val wifi = data.optJSONObject("wifi")
             val wifiSsid = wifi?.optString("networkName", "") ?: ""
@@ -488,6 +510,7 @@ class SmartStayDreamService : DreamService() {
                 putString("room_number", roomNum)
                 putString("checkout_time", checkout)
                 putString("concierge_phone", phone)
+                putString("quiet_hours", quietHours)
                 putString("wifi_ssid", wifiSsid)
                 putString("wifi_pass", wifiPass)
                 putString("wifi_status", wifiStatus)
@@ -499,12 +522,32 @@ class SmartStayDreamService : DreamService() {
             tvBadgeRoomGuest?.text = roomNum
             tvResRoomNum?.text = roomNum
             tvCheckoutRoomDeparture?.text = "Room $roomNum • Departure"
+            tvHotelHospitalityDesc?.text = "Welcome to $hotelName. Our property features state-of-the-art guest rooms and 24/7 dedicated reception."
+            tvCheckoutSub?.text = "We hope you had a pleasant stay at $hotelName."
             tvHotelCheckoutLabel?.text = "✓ Standard Check-out: $checkout"
             tvResCheckoutVal?.text = "By $checkout"
             tvHotelFrontDeskPhone?.text = "Front Desk Direct: $phone"
             tvCheckoutLuggagePhone?.text = "📞 Need luggage or airport transfer assistance? Reception: $phone"
+            tvFooterQuietReception?.text = "Quiet Hours: $quietHours • Reception / Front Desk: $phone"
 
             renderWifiDetails(wifiSsid, wifiPass, wifiStatus)
+
+            // Amenities
+            val amenitiesArr = data.optJSONArray("amenities")
+            if (amenitiesArr != null && amenitiesArr.length() > 0) {
+                val sb = StringBuilder()
+                for (i in 0 until minOf(amenitiesArr.length(), 4)) {
+                    val a = amenitiesArr.optJSONObject(i) ?: continue
+                    val name = a.optString("name", "")
+                    if (name.isNotEmpty()) sb.append("• ").append(name).append("\n")
+                }
+                val text = sb.toString().trim()
+                if (text.isNotEmpty()) {
+                    tvHotelAmenitiesList?.text = text
+                    tvGuestAmenitiesList?.text = text
+                    prefs.edit().putString("amenities_cached", text).apply()
+                }
+            }
 
             val guest = data.optJSONObject("guest")
             if (guest != null && !guest.optString("name", "").isNullOrEmpty()) {

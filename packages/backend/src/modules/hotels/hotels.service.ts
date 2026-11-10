@@ -89,6 +89,7 @@ export class HotelsService {
       data: updated,
       timestamp: new Date().toISOString(),
     });
+    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
 
     return updated;
   }
@@ -140,6 +141,7 @@ export class HotelsService {
       data: updated,
       timestamp: new Date().toISOString(),
     });
+    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
 
     return updated;
   }
@@ -245,6 +247,7 @@ export class HotelsService {
       data: created,
       timestamp: new Date().toISOString(),
     });
+    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
 
     return created;
   }
@@ -277,6 +280,7 @@ export class HotelsService {
       data: created,
       timestamp: new Date().toISOString(),
     });
+    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
 
     return created;
   }
@@ -520,6 +524,7 @@ export class HotelsService {
     });
 
     emitToHotel(hotelId, 'hotel.screensaver.updated', config);
+    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
 
     try {
       await prisma.auditLog.create({

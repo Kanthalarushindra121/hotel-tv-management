@@ -71,24 +71,47 @@ export function setupSocketIO(io: Server) {
         });
 
         if (!device) {
-          return next(new Error('Device not found'));
+          logger.warn({ targetId }, 'Device not found with provided token, falling back to deviceId lookup');
+        } else {
+          socket.data.type = 'device';
+          socket.data.deviceId = device.id;
+          socket.data.hardwareId = device.deviceId;
+          socket.data.hotelId = device.hotelId;
+          socket.data.roomId = device.roomId;
+          return next();
         }
-
-        socket.data.type = 'device';
-        socket.data.deviceId = device.id;
-        socket.data.hardwareId = device.deviceId;
-        socket.data.hotelId = device.hotelId;
-        socket.data.roomId = device.roomId;
-        
-        return next();
       } catch (err: any) {
-        logger.warn({ err: err.message }, 'Invalid device token supplied in socket connection');
-        return next(new Error('Invalid device token'));
+        logger.warn({ err: err.message }, 'Invalid device token supplied in socket connection, attempting deviceId fallback');
       }
     }
 
-    // 2. Unpaired TV connection (allows receiving DEVICE_PAIRED in real-time)
-    if (deviceId && !deviceToken) {
+    // 2. Fallback device authentication by deviceId (hardware fingerprint)
+    if (deviceId) {
+      try {
+        const device = await prisma.tvDevice.findFirst({
+          where: {
+            OR: [
+              { id: deviceId },
+              { deviceId: deviceId },
+            ],
+            deletedAt: null,
+          },
+          select: { id: true, deviceId: true, hotelId: true, roomId: true, status: true },
+        });
+
+        if (device && (device.status === 'PAIRED' || device.hotelId)) {
+          socket.data.type = 'device';
+          socket.data.deviceId = device.id;
+          socket.data.hardwareId = device.deviceId;
+          socket.data.hotelId = device.hotelId;
+          socket.data.roomId = device.roomId;
+          return next();
+        }
+      } catch (err: any) {
+        logger.warn({ err: err.message }, 'Failed fallback device lookup');
+      }
+
+      // Unpaired TV connection (allows receiving DEVICE_PAIRED in real-time)
       socket.data.type = 'unpaired_device';
       socket.data.deviceId = deviceId;
       return next();

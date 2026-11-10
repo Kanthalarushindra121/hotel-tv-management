@@ -653,12 +653,46 @@ class MainActivity : AppCompatActivity() {
                 })
             }
 
+            // REAL-TIME PAIRING CONFIRMATION
+            val onPaired = { args: Array<Any> ->
+                if (args.isNotEmpty()) {
+                    val data = args[0] as? JSONObject
+                    if (data != null) {
+                        val token = data.optString("deviceToken", "")
+                        val roomObj = data.optJSONObject("room")
+                        val roomNum = roomObj?.optString("roomNumber", "122") ?: "122"
+                        prefs.edit()
+                            .putBoolean("is_paired", true)
+                            .putString("room_number", roomNum)
+                            .apply()
+                        if (token.isNotEmpty()) {
+                            prefs.edit().putString("device_token", token).apply()
+                        }
+                        runOnUiThread {
+                            showStateHotel()
+                            val connectedSsid = getConnectedWifiSsid()
+                            socket?.emit("device.request_sync", JSONObject().apply {
+                                put("deviceId", hardwareId)
+                                if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                            })
+                        }
+                    }
+                }
+            }
+            socket?.on("device.paired") { onPaired(it) }
+            socket?.on("DEVICE_PAIRED") { onPaired(it) }
+
             // REAL-TIME GUEST CHECK-IN
             val onGuestCheckin = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
-                        val guestName = data.optString("guestName", "Guest")
+                        val guestObj = data.optJSONObject("guest")
+                        val guestName = if (data.has("guestName")) {
+                            data.optString("guestName", "Guest")
+                        } else {
+                            guestObj?.optString("name", guestObj.optString("firstName", "Guest")) ?: "Guest"
+                        }
                         val roomNum = data.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")
                         val checkoutTime = data.optString("checkoutTime", "11:00")
 
@@ -714,14 +748,28 @@ class MainActivity : AppCompatActivity() {
             val onRefresh = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
-                    if (data != null) {
+                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings"))) {
                         runOnUiThread { applyServerTvPayload(data) }
+                    } else {
+                        val connectedSsid = getConnectedWifiSsid()
+                        socket?.emit("device.request_sync", JSONObject().apply {
+                            put("deviceId", hardwareId)
+                            if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                        })
                     }
+                } else {
+                    val connectedSsid = getConnectedWifiSsid()
+                    socket?.emit("device.request_sync", JSONObject().apply {
+                        put("deviceId", hardwareId)
+                        if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                    })
                 }
             }
             socket?.on("screen.refresh") { onRefresh(it) }
             socket?.on("content.updated") { onRefresh(it) }
             socket?.on("CONTENT_UPDATED") { onRefresh(it) }
+            socket?.on("hotel.settings.updated") { onRefresh(it) }
+            socket?.on("hotel.screensaver.updated") { onRefresh(it) }
 
             // REMOTE DEVICE COMMANDS
             socket?.on("device.command") { args ->

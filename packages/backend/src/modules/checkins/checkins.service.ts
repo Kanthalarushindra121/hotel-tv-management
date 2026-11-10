@@ -235,14 +235,17 @@ export class CheckinService {
 
     if (device) {
       // Send personalized guest data to TV immediately
+      const guestFullName = `${result.guest.firstName} ${result.guest.lastName}`.trim();
       const tvPayload = {
-        guestName: result.guest.firstName,
+        guestName: guestFullName,
+        name: guestFullName,
         guest: {
           id: result.guest.id,
           firstName: result.guest.firstName,
           lastName: result.guest.lastName,
-          name: `${result.guest.firstName} ${result.guest.lastName}`.trim(),
+          name: guestFullName,
         },
+        roomId: data.roomId,
         roomNumber: room.roomNumber,
         checkoutTime: hotel?.settings?.checkOutTime || '11:00 AM',
         booking: {
@@ -262,6 +265,9 @@ export class CheckinService {
         emitToDevice(device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
         emitToDevice(device.deviceId, 'guest.checked_in', tvPayload);
       }
+      // Also broadcast to hotel room so any TV connected to hotel can verify
+      emitToHotel(hotelId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
+      emitToHotel(hotelId, 'guest.checked_in', tvPayload);
     }
 
     // Notify all hotel dashboard users
@@ -373,6 +379,7 @@ export class CheckinService {
       const clearPayload = {
         bookingId,
         action: 'CLEAR_GUEST',
+        roomId: booking.roomId,
         roomNumber: booking.room.roomNumber,
         timestamp: new Date().toISOString(),
       };
@@ -382,6 +389,8 @@ export class CheckinService {
         emitToDevice(booking.room.device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_OUT, clearPayload);
         emitToDevice(booking.room.device.deviceId, 'guest.checked_out', clearPayload);
       }
+      emitToHotel(hotelId, SOCKET_EVENTS.GUEST_CHECKED_OUT, clearPayload);
+      emitToHotel(hotelId, 'guest.checked_out', clearPayload);
     }
 
     // Notify hotel dashboard
