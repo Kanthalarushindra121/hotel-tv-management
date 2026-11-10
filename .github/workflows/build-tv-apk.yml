@@ -6,9 +6,6 @@ on:
     branches:
       - main
       - prod
-    paths:
-      - 'packages/tv-android/**'
-      - '.github/workflows/build-tv-apk.yml'
 
 jobs:
   build-apk:
@@ -27,29 +24,38 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
+
+      - name: Install Android 34 Platform & Build Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses || true
-
       - name: Build APK with Cloud Backend
         working-directory: packages/tv-android
         run: |
-          gradle assembleRelease --no-daemon --stacktrace \
+          gradle assembleRelease assembleDebug --no-daemon --stacktrace \
             -PBACKEND_URL="https://hotel-tv-management.onrender.com"
 
-      - name: Verify Generated APK
+      - name: Verify Generated APKs
         working-directory: packages/tv-android
         run: |
-          ls -lh app/build/outputs/apk/release/
+          echo "=== RELEASE APK ==="
+          ls -lh app/build/outputs/apk/release/ || true
+          echo "=== DEBUG APK ==="
+          ls -lh app/build/outputs/apk/debug/ || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: smartstay-tv-apk
-          path: packages/tv-android/app/build/outputs/apk/release/*.apk
+          path: |
+            packages/tv-android/app/build/outputs/apk/release/*.apk
+            packages/tv-android/app/build/outputs/apk/debug/*.apk
           retention-days: 14
