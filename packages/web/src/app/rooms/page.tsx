@@ -663,7 +663,7 @@ export default function RoomsPage() {
                     capacity: newRoom.capacity,
                     status: newRoom.status,
                     notes: newRoom.notes,
-                    pairingCode: validatedDevice ? pairingCodeInput.trim() : undefined,
+                    pairingCode: pairingCodeInput.trim() || undefined,
                   });
                 }}
                 className="mt-4 space-y-4"

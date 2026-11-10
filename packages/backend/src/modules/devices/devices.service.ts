@@ -216,8 +216,14 @@ export class DevicesService {
       { expiresIn: env.DEVICE_TOKEN_EXPIRES_IN as any }
     );
 
-    // Update device in a transaction
+    // Update device in a transaction with extended cloud DB timeout
     const updatedDevice = await prisma.$transaction(async (tx) => {
+      // Unlink any existing or deleted TV device from this room to avoid unique constraint collisions
+      await tx.tvDevice.updateMany({
+        where: { roomId, id: { not: deviceDbId } },
+        data: { roomId: null },
+      });
+
       const d = await tx.tvDevice.update({
         where: { id: deviceDbId },
         data: {
@@ -259,7 +265,7 @@ export class DevicesService {
       });
 
       return d;
-    });
+    }, { maxWait: 15000, timeout: 25000 });
 
     // Remove pairing code from Redis
     await redis.del(`${PAIRING_KEY_PREFIX}${cleanCode}`);
