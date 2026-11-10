@@ -109,7 +109,6 @@ export class DevicesService {
       const dbDev = await prisma.tvDevice.findFirst({
         where: {
           pairingCode: cleanCode,
-          pairingExpiry: { gte: new Date() },
           deletedAt: null,
         },
       });

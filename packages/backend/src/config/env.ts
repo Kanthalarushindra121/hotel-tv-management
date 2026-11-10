@@ -29,7 +29,7 @@ const envSchema = z.object({
   SUPER_ADMIN_EMAIL: z.string().email(),
   SUPER_ADMIN_PASSWORD: z.string().min(8),
   
-  PAIRING_CODE_EXPIRY_MINUTES: z.coerce.number().default(15),
+  PAIRING_CODE_EXPIRY_MINUTES: z.coerce.number().default(120),
   PAIRING_CODE_LENGTH: z.coerce.number().default(6),
   
   DEVICE_OFFLINE_THRESHOLD_MINUTES: z.coerce.number().default(5),
