@@ -264,46 +264,69 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
     }
   });
 
+function mapScreenState(raw?: string): any {
+  if (!raw) return undefined;
+  const upper = raw.toUpperCase();
+  if (['UNPAIRED', 'PAIRING', 'SYNCING', 'DEFAULT_MODE', 'GUEST_ACTIVE', 'CHECKOUT_DAY', 'SCREENSAVER', 'OFFLINE', 'ERROR'].includes(upper)) {
+    return upper;
+  }
+  if (upper === 'STATE_HOTEL' || upper === 'HOTEL') return 'DEFAULT_MODE';
+  if (upper === 'STATE_GUEST' || upper === 'GUEST') return 'GUEST_ACTIVE';
+  if (upper === 'STATE_CHECKOUT' || upper === 'CHECKOUT') return 'CHECKOUT_DAY';
+  return 'DEFAULT_MODE';
+}
+
   // Handle heartbeat
   socket.on(SOCKET_EVENTS.DEVICE_HEARTBEAT, async (data: {
     appVersion?: string;
     screenState?: string;
     ipAddress?: string;
   }) => {
-    await prisma.tvDevice.update({
-      where: { id: deviceId },
-      data: {
-        isOnline: true,
-        lastSeenAt: new Date(),
-        status: 'ONLINE',
-        appVersion: data?.appVersion,
-        ipAddress: data?.ipAddress || socket.handshake.address,
-      },
-    });
+    try {
+      const validScreenState = mapScreenState(data?.screenState);
+      await prisma.tvDevice.update({
+        where: { id: deviceId },
+        data: {
+          isOnline: true,
+          lastSeenAt: new Date(),
+          status: 'ONLINE',
+          ...(validScreenState ? { screenState: validScreenState } : {}),
+          appVersion: data?.appVersion,
+          ipAddress: data?.ipAddress || socket.handshake.address,
+        },
+      });
 
-    await prisma.deviceHeartbeat.create({
-      data: {
-        deviceId,
-        isOnline: true,
-        appVersion: data?.appVersion,
-        screenState: (data?.screenState as any) || undefined,
-        ipAddress: data?.ipAddress || socket.handshake.address,
-      },
-    });
+      await prisma.deviceHeartbeat.create({
+        data: {
+          deviceId,
+          isOnline: true,
+          appVersion: data?.appVersion,
+          screenState: validScreenState,
+          ipAddress: data?.ipAddress || socket.handshake.address,
+        },
+      });
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed to record device heartbeat');
+    }
   });
 
   // Handle screen state change
   socket.on(SOCKET_EVENTS.SCREEN_STATE_CHANGED, async (data: { screenState: string }) => {
-    await prisma.tvDevice.update({
-      where: { id: deviceId },
-      data: { screenState: data.screenState as any },
-    });
-
-    if (hotelId) {
-      socket.to(getHotelRoom(hotelId)).emit(SOCKET_EVENTS.ROOM_STATUS_UPDATED, {
-        deviceId,
-        screenState: data.screenState,
+    try {
+      const validScreenState = mapScreenState(data?.screenState) || 'DEFAULT_MODE';
+      await prisma.tvDevice.update({
+        where: { id: deviceId },
+        data: { screenState: validScreenState },
       });
+
+      if (hotelId) {
+        socket.to(getHotelRoom(hotelId)).emit(SOCKET_EVENTS.ROOM_STATUS_UPDATED, {
+          deviceId,
+          screenState: validScreenState,
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed to update screen state');
     }
   });
 }
