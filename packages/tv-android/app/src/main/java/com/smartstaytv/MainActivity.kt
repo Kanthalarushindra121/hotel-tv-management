@@ -743,7 +743,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // REAL-TIME PAIRING CONFIRMATION
-            val onPaired = { args: Array<Any> ->
+            fun onPaired(args: Array<Any>) {
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
@@ -777,20 +777,20 @@ class MainActivity : AppCompatActivity() {
             socket?.on("DEVICE_PAIRED") { onPaired(it) }
 
             // REAL-TIME GUEST CHECK-IN
-            val onGuestCheckin = { args: Array<Any> ->
+            fun onGuestCheckin(args: Array<Any>) {
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
                         val isPaired = prefs.getBoolean("is_paired", false)
                         if (!isPaired) {
                             Log.d(TAG, "Device is not yet paired; ignoring guest.checked_in")
-                            return@onGuestCheckin
+                            return
                         }
                         val myRoom = prefs.getString("room_number", "")
                         val targetRoom = data.optString("roomNumber", "")
                         if (!myRoom.isNullOrEmpty() && targetRoom.isNotEmpty() && myRoom != targetRoom) {
                             Log.d(TAG, "Ignoring check-in: room mismatch ($myRoom vs $targetRoom)")
-                            return@onGuestCheckin
+                            return
                         }
 
                         val guestObj = data.optJSONObject("guest")
@@ -820,11 +820,11 @@ class MainActivity : AppCompatActivity() {
             socket?.on("GUEST_CHECKED_IN") { onGuestCheckin(it) }
 
             // REAL-TIME GUEST CHECKOUT
-            val onGuestCheckout = { args: Array<Any> ->
+            fun onGuestCheckout(args: Array<Any>) {
                 val isPaired = prefs.getBoolean("is_paired", false)
                 if (!isPaired) {
                     Log.d(TAG, "Device is not yet paired; ignoring checkout")
-                    return@onGuestCheckout
+                    return
                 }
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
@@ -832,7 +832,7 @@ class MainActivity : AppCompatActivity() {
                     val targetRoom = data?.optString("roomNumber", "")
                     if (!myRoom.isNullOrEmpty() && !targetRoom.isNullOrEmpty() && myRoom != targetRoom) {
                         Log.d(TAG, "Ignoring checkout: room mismatch ($myRoom vs $targetRoom)")
-                        return@onGuestCheckout
+                        return
                     }
                 }
                 prefs.edit().remove("guest_name").apply()
@@ -849,7 +849,7 @@ class MainActivity : AppCompatActivity() {
             socket?.on("GUEST_CHECKED_OUT") { onGuestCheckout(it) }
 
             // WI-FI CREDENTIALS UPDATE
-            val onWifiUpdated = { args: Array<Any> ->
+            fun onWifiUpdated(args: Array<Any>) {
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
@@ -865,11 +865,11 @@ class MainActivity : AppCompatActivity() {
             socket?.on("WIFI_UPDATED") { onWifiUpdated(it) }
 
             // CONTENT / CONFIG UPDATE
-            val onRefresh = { args: Array<Any> ->
+            fun onRefresh(args: Array<Any>) {
                 val isPaired = prefs.getBoolean("is_paired", false)
                 if (!isPaired) {
                     Log.d(TAG, "Device is not yet paired; ignoring refresh")
-                    return@onRefresh
+                    return
                 }
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
