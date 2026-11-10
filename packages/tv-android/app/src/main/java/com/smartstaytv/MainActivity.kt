@@ -21,6 +21,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RelativeLayout
@@ -120,11 +121,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvFooterWakeHint: TextView
     private lateinit var btnLaunchEntertainment: Button
 
-    // Pairing Views
+    // Pairing & Settings Views
     private lateinit var tvPairingCode: TextView
     private lateinit var ivPairingQr: ImageView
     private lateinit var tvPairingStatus: TextView
     private lateinit var btnServerConfig: Button
+    private lateinit var btnRetryPairing: Button
+    private lateinit var btnFloatingSettings: ImageButton
 
     // State & Preferences
     private lateinit var prefs: SharedPreferences
@@ -228,11 +231,13 @@ class MainActivity : AppCompatActivity() {
         tvFooterWakeHint = findViewById(R.id.tv_footer_wake_hint)
         btnLaunchEntertainment = findViewById(R.id.btn_launch_entertainment)
 
-        // Pairing
+        // Pairing & Floating Settings
         tvPairingCode = findViewById(R.id.tv_pairing_code)
         ivPairingQr = findViewById(R.id.iv_pairing_qr)
         tvPairingStatus = findViewById(R.id.tv_pairing_status)
         btnServerConfig = findViewById(R.id.btn_server_config)
+        btnRetryPairing = findViewById(R.id.btn_retry_pairing)
+        btnFloatingSettings = findViewById(R.id.btn_floating_settings)
     }
 
     private fun setupListeners() {
@@ -245,6 +250,17 @@ class MainActivity : AppCompatActivity() {
         btnServerConfig.setOnClickListener {
             showServerConfigDialog()
         }
+        btnRetryPairing.setOnClickListener {
+            Toast.makeText(this, "Connecting to server...", Toast.LENGTH_SHORT).show()
+            requestPairingCodeFromBackend()
+        }
+        btnFloatingSettings.setOnClickListener {
+            showServerConfigDialog()
+        }
+        // Allow mobile testers to tap the top hotel headers to open server settings
+        headerHotel.setOnClickListener { showServerConfigDialog() }
+        headerGuest.setOnClickListener { showServerConfigDialog() }
+        headerCheckout.setOnClickListener { showServerConfigDialog() }
     }
 
     private fun getHardwareId(): String {
@@ -325,10 +341,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun getBackendBaseUrl(): String {
         val saved = prefs.getString("backend_url", null)
-        if (saved != null && !saved.contains("192.168.") && !saved.contains("localhost") && !saved.contains("127.0.0.1")) {
-            return saved
+        if (!saved.isNullOrBlank()) {
+            return saved.trim().removeSuffix("/")
         }
-        return BuildConfig.DEFAULT_BACKEND_URL
+        return BuildConfig.DEFAULT_BACKEND_URL.trim().removeSuffix("/")
     }
 
     private fun updateClocks() {
@@ -499,7 +515,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestPairingCodeFromBackend() {
         val hardwareId = getHardwareId()
-        val url = "${getBackendBaseUrl()}/api/v1/devices/pairing/initiate"
+        val baseUrl = getBackendBaseUrl()
+        val url = "$baseUrl/api/v1/devices/pairing/initiate"
+
+        runOnUiThread {
+            currentState = TvScreenState.PAIRING
+            viewPairing.visibility = View.VISIBLE
+            viewMainContainer.visibility = View.GONE
+            tvPairingCode.text = "......"
+            tvPairingStatus.text = "● Requesting code from $baseUrl..."
+            tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#38BDF8"))
+        }
 
         val json = JSONObject().apply {
             put("deviceId", hardwareId)
@@ -517,21 +543,51 @@ class MainActivity : AppCompatActivity() {
 
         httpClient.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                val fallbackCode = prefs.getString("pairing_code", (100000..999999).random().toString()) ?: "482193"
-                runOnUiThread { showPairingScreen(fallbackCode) }
+                runOnUiThread {
+                    tvPairingCode.text = "OFFLINE"
+                    tvPairingStatus.text = "❌ Cannot reach server (${e.message ?: "Network error"}). Tap ⚙ Server Settings to configure URL."
+                    tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#F87171"))
+                    ivPairingQr.setImageDrawable(null)
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
                     val respStr = response.body?.string() ?: ""
+                    if (!response.isSuccessful) {
+                        runOnUiThread {
+                            tvPairingCode.text = "ERR ${response.code}"
+                            tvPairingStatus.text = "❌ Server error (HTTP ${response.code}). Check database or tap ⚙ Server Settings."
+                            tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#F87171"))
+                            ivPairingQr.setImageDrawable(null)
+                        }
+                        return
+                    }
                     val root = JSONObject(respStr)
                     val data = root.optJSONObject("data")
-                    val code = data?.optString("code") ?: (100000..999999).random().toString()
+                    val code = data?.optString("code")
+                    if (code.isNullOrEmpty()) {
+                        runOnUiThread {
+                            tvPairingCode.text = "ERROR"
+                            tvPairingStatus.text = "❌ Invalid server response format. Tap ⚙ Server Settings."
+                            tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#F87171"))
+                            ivPairingQr.setImageDrawable(null)
+                        }
+                        return
+                    }
                     prefs.edit().putString("pairing_code", code).apply()
-                    runOnUiThread { showPairingScreen(code) }
+                    runOnUiThread {
+                        showPairingScreen(code)
+                        tvPairingStatus.text = "● Waiting for hotel staff authorization..."
+                        tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#34D399"))
+                    }
                 } catch (e: Exception) {
-                    val fallbackCode = prefs.getString("pairing_code", (100000..999999).random().toString()) ?: "482193"
-                    runOnUiThread { showPairingScreen(fallbackCode) }
+                    runOnUiThread {
+                        tvPairingCode.text = "ERROR"
+                        tvPairingStatus.text = "❌ Parse error: ${e.message}"
+                        tvPairingStatus.setTextColor(android.graphics.Color.parseColor("#F87171"))
+                        ivPairingQr.setImageDrawable(null)
+                    }
                 }
             }
         })
@@ -847,18 +903,105 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showServerConfigDialog() {
+        val currentUrl = getBackendBaseUrl()
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 20, 40, 20)
         }
+
+        val tvStatus = TextView(this).apply {
+            val isConn = socket?.connected() == true
+            text = "Active Server: $currentUrl\nWebSocket Status: ${if (isConn) "🟢 Connected" else "🔴 Disconnected"}"
+            textSize = 12f
+            setTextColor(android.graphics.Color.LTGRAY)
+            setPadding(0, 0, 0, 16)
+        }
+        layout.addView(tvStatus)
+
         val input = android.widget.EditText(this).apply {
-            setText(getBackendBaseUrl())
+            hint = "Enter Backend URL"
+            setText(currentUrl)
             setSelection(text.length)
         }
         layout.addView(input)
 
+        // Presets container
+        val presetsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 16, 0, 8)
+        }
+
+        val btnRender = Button(this).apply {
+            text = "☁️ Render Cloud"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener {
+                input.setText("https://hotel-tv-management.onrender.com")
+                input.setSelection(input.text.length)
+            }
+        }
+        presetsLayout.addView(btnRender)
+
+        val btnLocal = Button(this).apply {
+            text = "💻 Local PC"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener {
+                input.setText("http://192.168.29.219:4000")
+                input.setSelection(input.text.length)
+            }
+        }
+        presetsLayout.addView(btnLocal)
+        layout.addView(presetsLayout)
+
+        // Test server connection
+        val btnTest = Button(this).apply {
+            text = "⚡ Test Server Connection (/health)"
+            setOnClickListener {
+                val target = input.text.toString().trim().removeSuffix("/") + "/health"
+                Toast.makeText(this@MainActivity, "Pinging $target...", Toast.LENGTH_SHORT).show()
+                val req = Request.Builder().url(target).get().build()
+                httpClient.newCall(req).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "❌ Ping Failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    override fun onResponse(call: Call, response: Response) {
+                        val body = response.body?.string() ?: ""
+                        runOnUiThread {
+                            if (response.isSuccessful) {
+                                Toast.makeText(this@MainActivity, "✅ Success! HTTP ${response.code}: $body", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(this@MainActivity, "⚠️ Server returned HTTP ${response.code}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                })
+            }
+        }
+        layout.addView(btnTest)
+
+        // Reset & Unpair Button
+        val btnUnpair = Button(this).apply {
+            text = "🔄 Reset & Unpair (Generate Fresh Code)"
+            setOnClickListener {
+                prefs.edit()
+                    .remove("is_paired")
+                    .remove("device_token")
+                    .remove("room_number")
+                    .remove("guest_name")
+                    .remove("pairing_code")
+                    .apply()
+                socket?.disconnect()
+                socket?.off()
+                initSocketConnection()
+                requestPairingCodeFromBackend()
+                Toast.makeText(this@MainActivity, "Device unlinked. Fetching fresh pairing code...", Toast.LENGTH_SHORT).show()
+            }
+        }
+        layout.addView(btnUnpair)
+
         val btnScreensaver = Button(this).apply {
-            text = "Configure Daydream Screensaver"
+            text = "⚙ Configure Daydream Screensaver"
             setOnClickListener {
                 try {
                     startActivity(Intent(Settings.ACTION_DREAM_SETTINGS).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
@@ -871,7 +1014,6 @@ class MainActivity : AppCompatActivity() {
 
         android.app.AlertDialog.Builder(this)
             .setTitle("SmartStay TV Configuration")
-            .setMessage("Set Cloud or Backend URL (e.g. https://your-app.onrender.com):")
             .setView(layout)
             .setPositiveButton("Save & Reconnect") { _, _ ->
                 val newUrl = input.text.toString().trim().removeSuffix("/")
@@ -881,10 +1023,10 @@ class MainActivity : AppCompatActivity() {
                     socket?.off()
                     initSocketConnection()
                     requestPairingCodeFromBackend()
-                    Toast.makeText(this@MainActivity, "Connected to: $newUrl", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Reconnecting to: $newUrl", Toast.LENGTH_LONG).show()
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Close", null)
             .show()
     }
 
