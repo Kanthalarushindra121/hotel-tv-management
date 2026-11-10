@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: hotel-tv-management
+    env: node
+    plan: free
+    region: frankfurt
+    rootDir: packages/backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: API_BASE_URL
+        value: https://hotel-tv-management.onrender.com
+      - key: FRONTEND_URL
+        value: "*"
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        value: ""
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: DEVICE_TOKEN_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: SUPER_ADMIN_EMAIL
+        value: admin@smartstay.com
+      - key: SUPER_ADMIN_PASSWORD
+        value: SmartStayAdmin2026!
+      - key: CHECKOUT_REMINDER_MINUTES
+        value: 60
+      - key: DEVICE_OFFLINE_THRESHOLD_MINUTES
+        value: 5

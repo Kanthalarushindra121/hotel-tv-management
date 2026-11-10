@@ -8,7 +8,11 @@ export function setupJobs() {
   logger.info('Setting up periodic background tasks...');
 
   // Setup BullMQ checkout reminder worker
-  setupReminderWorker();
+  try {
+    setupReminderWorker();
+  } catch (err: any) {
+    logger.warn(`BullMQ reminder worker skipped (Redis optional): ${err?.message || err}`);
+  }
 
   // Periodic device offline checker (every 60s)
   setInterval(async () => {

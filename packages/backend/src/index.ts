@@ -55,7 +55,7 @@ async function bootstrap() {
         return cb(null, true);
       }
       const origins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
-      if (origins.includes(origin)) {
+      if (origins.includes('*') || origins.includes(origin)) {
         return cb(null, true);
       }
       cb(new Error('CORS Not Allowed'), false);
@@ -121,7 +121,7 @@ async function bootstrap() {
   const corsOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
   const io = new Server(app.server, {
     cors: {
-      origin: env.NODE_ENV !== 'production' ? true : corsOrigins,
+      origin: env.NODE_ENV !== 'production' || corsOrigins.includes('*') ? true : corsOrigins,
       methods: ['GET', 'POST'],
       credentials: true,
     },

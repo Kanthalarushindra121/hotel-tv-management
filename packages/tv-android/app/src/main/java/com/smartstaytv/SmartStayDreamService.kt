@@ -364,7 +364,12 @@ class SmartStayDreamService : DreamService() {
      */
     private fun initRealtimeSync() {
         try {
-            val backendUrl = prefs.getString("backend_url", BuildConfig.DEFAULT_BACKEND_URL) ?: BuildConfig.DEFAULT_BACKEND_URL
+            val saved = prefs.getString("backend_url", null)
+            val backendUrl = if (saved != null && !saved.contains("192.168.") && !saved.contains("localhost") && !saved.contains("127.0.0.1")) {
+                saved
+            } else {
+                BuildConfig.DEFAULT_BACKEND_URL
+            }
             val hardwareId = getHardwareId()
             val deviceToken = prefs.getString("device_token", null)
 

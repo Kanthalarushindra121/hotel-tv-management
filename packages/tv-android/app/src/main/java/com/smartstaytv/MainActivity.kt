@@ -124,6 +124,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPairingCode: TextView
     private lateinit var ivPairingQr: ImageView
     private lateinit var tvPairingStatus: TextView
+    private lateinit var btnServerConfig: Button
 
     // State & Preferences
     private lateinit var prefs: SharedPreferences
@@ -231,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         tvPairingCode = findViewById(R.id.tv_pairing_code)
         ivPairingQr = findViewById(R.id.iv_pairing_qr)
         tvPairingStatus = findViewById(R.id.tv_pairing_status)
+        btnServerConfig = findViewById(R.id.btn_server_config)
     }
 
     private fun setupListeners() {
@@ -239,6 +241,9 @@ class MainActivity : AppCompatActivity() {
         }
         btnCheckoutReturn.setOnClickListener {
             showStateHotel()
+        }
+        btnServerConfig.setOnClickListener {
+            showServerConfigDialog()
         }
     }
 
@@ -319,7 +324,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getBackendBaseUrl(): String {
-        return prefs.getString("backend_url", BuildConfig.DEFAULT_BACKEND_URL) ?: BuildConfig.DEFAULT_BACKEND_URL
+        val saved = prefs.getString("backend_url", null)
+        if (saved != null && !saved.contains("192.168.") && !saved.contains("localhost") && !saved.contains("127.0.0.1")) {
+            return saved
+        }
+        return BuildConfig.DEFAULT_BACKEND_URL
     }
 
     private fun updateClocks() {
@@ -814,13 +823,17 @@ class MainActivity : AppCompatActivity() {
 
         android.app.AlertDialog.Builder(this)
             .setTitle("SmartStay TV Configuration")
-            .setMessage("Set backend LAN URL:")
+            .setMessage("Set Cloud or Backend URL (e.g. https://your-app.onrender.com):")
             .setView(layout)
             .setPositiveButton("Save & Reconnect") { _, _ ->
-                val newUrl = input.text.toString().trim()
+                val newUrl = input.text.toString().trim().removeSuffix("/")
                 if (newUrl.isNotEmpty()) {
                     prefs.edit().putString("backend_url", newUrl).apply()
+                    socket?.disconnect()
+                    socket?.off()
                     initSocketConnection()
+                    requestPairingCodeFromBackend()
+                    Toast.makeText(this@MainActivity, "Connected to: $newUrl", Toast.LENGTH_LONG).show()
                 }
             }
             .setNegativeButton("Cancel", null)

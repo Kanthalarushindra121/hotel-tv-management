@@ -37,11 +37,21 @@ class MemoryStore {
   duplicate() { return this as any; }
 
   on(_event: string, _handler: (...args: any[]) => void) { return this as any; }
+
+  disconnect() {}
+
+  quit() {}
 }
 
 let isUsingMemoryFallback = false;
 
 function createRedisClient() {
+  if (!env.REDIS_URL || env.REDIS_URL.trim() === '' || env.REDIS_URL === 'memory') {
+    isUsingMemoryFallback = true;
+    console.log('ℹ️  Using built-in in-memory cache/pairing store (No external Redis required).');
+    return new MemoryStore() as any;
+  }
+
   const client = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 2,
     connectTimeout: 3000,

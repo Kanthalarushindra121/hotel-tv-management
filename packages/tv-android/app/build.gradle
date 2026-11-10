@@ -15,7 +15,8 @@ android {
         versionName "1.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField "String", "DEFAULT_BACKEND_URL", "\"http://192.168.29.219:4000\""
+        def defaultBackendUrl = project.findProperty("BACKEND_URL") ?: (System.getenv("BACKEND_URL") ?: "https://hotel-tv-management.onrender.com")
+        buildConfigField "String", "DEFAULT_BACKEND_URL", "\"${defaultBackendUrl}\""
     }
 
     buildTypes {
