@@ -133,6 +133,7 @@ export default function DashboardPage() {
       }
     },
     placeholderData: (prev) => prev,
+    refetchInterval: 10000,
   });
 
   // 3. Activity Query
@@ -200,6 +201,22 @@ export default function DashboardPage() {
       socket.on("ROOM_STATUS_CHANGED", () => {
         queryClient.invalidateQueries({ queryKey: ["rooms"] });
         queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      });
+
+      socket.on("device.heartbeat", () => {
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      });
+
+      socket.on("device.status.updated", () => {
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      });
+
+      socket.on("DEVICE_ONLINE", () => {
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      });
+
+      socket.on("DEVICE_OFFLINE", () => {
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
       });
     } catch {
       // Socket connection fallback
@@ -343,8 +360,8 @@ export default function DashboardPage() {
     [stats?.occupancyRate, totalRoomsCount, occupiedCount]
   );
   const onlineTvs = useMemo(
-    () => stats?.onlineTvs ?? rooms.filter((r) => r.device?.status?.toUpperCase() === "ONLINE").length,
-    [stats?.onlineTvs, rooms]
+    () => rooms.filter((r) => Boolean(r.device && (r.device.isOnline === true || r.device.status?.toUpperCase() === "ONLINE"))).length,
+    [rooms]
   );
 
   // Memoized Filtered rooms
@@ -587,7 +604,17 @@ export default function DashboardPage() {
                   "Guest"
                 : null;
 
-              const tvOnline = room.device?.status?.toUpperCase() === "ONLINE";
+              const tvOnline = Boolean(
+                room.device &&
+                (room.device.isOnline === true || room.device.status?.toUpperCase() === "ONLINE")
+              );
+              const tvDeviceName = room.device
+                ? (room.device.name && room.device.name !== "Smart TV" && room.device.name !== "SmartStay Android TV"
+                    ? room.device.name
+                    : (room.device.deviceBrand && room.device.deviceModel
+                        ? `${room.device.deviceBrand} ${room.device.deviceModel}`
+                        : (room.device.deviceModel || room.device.name || "SmartStay TV")))
+                : "No TV Assigned";
 
               return (
                 <div
@@ -670,17 +697,19 @@ export default function DashboardPage() {
 
                       {/* Device TV connectivity */}
                       <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <div className="flex items-center gap-1.5">
-                          <Tv className="w-3 h-3 text-slate-400" />
-                          <span>Smart TV</span>
+                        <div className="flex items-center gap-1.5 truncate max-w-[65%]">
+                          <Tv className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate font-medium text-slate-700" title={tvDeviceName}>
+                            {tvDeviceName}
+                          </span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           <span
                             className={`w-2 h-2 rounded-full ${
                               tvOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-300"
                             }`}
                           />
-                          <span className="font-semibold text-slate-600">
+                          <span className={`font-semibold ${tvOnline ? "text-emerald-700" : "text-slate-600"}`}>
                             {tvOnline ? "Online" : "Offline"}
                           </span>
                         </div>

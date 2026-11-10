@@ -21,11 +21,13 @@ export interface HotelSettingsState {
   conciergePhone: string;
   amenities: AmenityItem[];
 
-  updateSettings: (settings: Partial<Omit<HotelSettingsState, "updateSettings" | "getWifiQrString" | "toggleAmenity" | "addAmenity" | "removeAmenity">>) => void;
+  updateSettings: (settings: Partial<Omit<HotelSettingsState, "updateSettings" | "getWifiQrString" | "toggleAmenity" | "addAmenity" | "removeAmenity" | "setAmenities" | "updateAmenity">>) => void;
   getWifiQrString: () => string;
   toggleAmenity: (id: string) => void;
   addAmenity: (name: string, hours?: string, icon?: string) => void;
+  updateAmenity: (id: string, data: Partial<AmenityItem>) => void;
   removeAmenity: (id: string) => void;
+  setAmenities: (amenities: AmenityItem[]) => void;
 }
 
 export function buildWifiQrString(
@@ -95,9 +97,22 @@ export const useHotelStore = create<HotelSettingsState>()(
           ],
         })),
 
+      updateAmenity: (id, data) =>
+        set((state) => ({
+          amenities: state.amenities.map((a) =>
+            a.id === id ? { ...a, ...data } : a
+          ),
+        })),
+
       removeAmenity: (id) =>
         set((state) => ({
           amenities: state.amenities.filter((a) => a.id !== id),
+        })),
+
+      setAmenities: (amenities) =>
+        set((state) => ({
+          ...state,
+          amenities,
         })),
     }),
     {

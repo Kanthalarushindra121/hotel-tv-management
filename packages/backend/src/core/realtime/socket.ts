@@ -161,59 +161,93 @@ export function setupSocketIO(io: Server) {
 
 // ─── Device handlers ──────────────────────────────────────
 async function handleDeviceConnect(io: Server, socket: Socket) {
-  const { deviceId, hardwareId, hotelId } = socket.data;
+  const { deviceId, hardwareId } = socket.data;
+
+  // Resolve true database record by UUID or hardware fingerprint
+  const dev = await prisma.tvDevice.findFirst({
+    where: {
+      OR: [
+        ...(deviceId ? [{ id: deviceId }, { deviceId }] : []),
+        ...(hardwareId ? [{ id: hardwareId }, { deviceId: hardwareId }] : []),
+      ],
+      deletedAt: null,
+    },
+    include: { room: true },
+  });
+
+  const effectiveHotelId = dev?.hotelId || socket.data.hotelId;
+  const effectiveDbId = dev?.id || deviceId;
+  const effectiveHardwareId = dev?.deviceId || hardwareId;
+
+  // Update socket.data with true identifiers
+  socket.data.deviceId = effectiveDbId;
+  socket.data.hardwareId = effectiveHardwareId;
+  socket.data.hotelId = effectiveHotelId;
+  socket.data.roomId = dev?.roomId;
 
   // Join rooms for hotel, database UUID, and hardware ID
-  if (hotelId) socket.join(getHotelRoom(hotelId));
-  if (deviceId) socket.join(getDeviceRoom(deviceId));
-  if (hardwareId && hardwareId !== deviceId) socket.join(getDeviceRoom(hardwareId));
+  if (effectiveHotelId) socket.join(getHotelRoom(effectiveHotelId));
+  if (effectiveDbId) socket.join(getDeviceRoom(effectiveDbId));
+  if (effectiveHardwareId && effectiveHardwareId !== effectiveDbId) socket.join(getDeviceRoom(effectiveHardwareId));
 
-  // Mark device online
-  await prisma.tvDevice.update({
-    where: { id: deviceId },
-    data: {
-      isOnline: true,
-      lastSeenAt: new Date(),
-      status: 'ONLINE',
-    },
-  });
+  // Mark device online if record exists
+  if (dev) {
+    try {
+      await prisma.tvDevice.update({
+        where: { id: dev.id },
+        data: {
+          isOnline: true,
+          lastSeenAt: new Date(),
+          status: 'ONLINE',
+        },
+      });
 
-  // Log heartbeat
-  await prisma.deviceHeartbeat.create({
-    data: {
-      deviceId,
-      isOnline: true,
-      ipAddress: socket.handshake.address,
-    },
-  });
+      await prisma.deviceHeartbeat.create({
+        data: {
+          deviceId: dev.id,
+          isOnline: true,
+          ipAddress: socket.handshake.address,
+        },
+      });
+    } catch (e: any) {
+      logger.warn({ err: e.message }, 'Failed to record device connect state in DB');
+    }
 
-  // Notify hotel dashboard
-  if (hotelId) {
-    socket.to(getHotelRoom(hotelId)).emit(SOCKET_EVENTS.DEVICE_ONLINE, {
-      deviceId,
-      hardwareId,
-      timestamp: new Date().toISOString(),
-    });
+    // Notify hotel dashboard in real time
+    if (effectiveHotelId) {
+      io.to(getHotelRoom(effectiveHotelId)).emit(SOCKET_EVENTS.DEVICE_ONLINE, {
+        deviceId: dev.id,
+        hardwareId: dev.deviceId,
+        roomId: dev.roomId,
+        roomNumber: dev.room?.roomNumber,
+        isOnline: true,
+        status: 'ONLINE',
+        timestamp: new Date().toISOString(),
+      });
+      io.to(getHotelRoom(effectiveHotelId)).emit('device.status.updated', {
+        deviceId: dev.id,
+        hardwareId: dev.deviceId,
+        roomId: dev.roomId,
+        roomNumber: dev.room?.roomNumber,
+        isOnline: true,
+        status: 'ONLINE',
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   // Push immediate fresh TV state and room occupancy to the TV on startup/connection ONLY if paired to a room
-  if (socket.data.type === 'device' && socket.data.deviceId) {
+  if (dev && dev.status === 'PAIRED' && dev.roomId && effectiveHotelId) {
     try {
       const { devicesService } = await import('../../modules/devices/devices.service');
-      const deviceRecord = await prisma.tvDevice.findUnique({
-        where: { id: deviceId },
-        include: { room: true },
+      const payload = await devicesService.getHotelTvPayload(
+        effectiveHotelId,
+        dev.roomId
+      );
+      socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
+        ...payload,
+        device: dev,
       });
-      if (deviceRecord && deviceRecord.status === 'PAIRED' && deviceRecord.roomId && deviceRecord.hotelId) {
-        const payload = await devicesService.getHotelTvPayload(
-          deviceRecord.hotelId,
-          deviceRecord.roomId
-        );
-        socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
-          ...payload,
-          device: deviceRecord,
-        });
-      }
     } catch (err: any) {
       logger.warn({ err: err.message }, 'Failed to emit initial TV payload on socket connection');
     }
@@ -221,22 +255,27 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
 
   // Allow TV to request fresh state on demand (only if paired to a room)
   socket.on('device.request_sync', async (data?: { connectedSsid?: string }) => {
-    if (socket.data.type !== 'device') return;
     try {
       const { devicesService } = await import('../../modules/devices/devices.service');
-      const dev = await prisma.tvDevice.findUnique({
-        where: { id: deviceId },
+      const activeDev = await prisma.tvDevice.findFirst({
+        where: {
+          OR: [
+            ...(socket.data.deviceId ? [{ id: socket.data.deviceId }, { deviceId: socket.data.deviceId }] : []),
+            ...(socket.data.hardwareId ? [{ id: socket.data.hardwareId }, { deviceId: socket.data.hardwareId }] : []),
+          ],
+          deletedAt: null,
+        },
         include: { room: true },
       });
-      if (dev && dev.status === 'PAIRED' && dev.roomId && dev.hotelId) {
+      if (activeDev && activeDev.status === 'PAIRED' && activeDev.roomId && activeDev.hotelId) {
         const payload = await devicesService.getHotelTvPayload(
-          dev.hotelId,
-          dev.roomId,
+          activeDev.hotelId,
+          activeDev.roomId,
           data?.connectedSsid
         );
         socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
           ...payload,
-          device: dev,
+          device: activeDev,
         });
       }
     } catch (err: any) {
@@ -248,20 +287,26 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
   socket.on('device.wifi.reported', async (data: { connectedSsid: string }) => {
     try {
       const { devicesService } = await import('../../modules/devices/devices.service');
-      const dev = await prisma.tvDevice.findUnique({
-        where: { id: deviceId },
+      const activeDev = await prisma.tvDevice.findFirst({
+        where: {
+          OR: [
+            ...(socket.data.deviceId ? [{ id: socket.data.deviceId }, { deviceId: socket.data.deviceId }] : []),
+            ...(socket.data.hardwareId ? [{ id: socket.data.hardwareId }, { deviceId: socket.data.hardwareId }] : []),
+          ],
+          deletedAt: null,
+        },
         include: { room: true },
       });
-      if (dev?.hotelId && data?.connectedSsid) {
+      if (activeDev?.hotelId && data?.connectedSsid) {
         const payload = await devicesService.getHotelTvPayload(
-          dev.hotelId,
-          dev.roomId || undefined,
+          activeDev.hotelId,
+          activeDev.roomId || undefined,
           data.connectedSsid
         );
         socket.emit('wifi.updated', payload.wifi);
         socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
           ...payload,
-          device: dev,
+          device: activeDev,
         });
       }
     } catch (err: any) {
@@ -288,9 +333,22 @@ function mapScreenState(raw?: string): any {
     ipAddress?: string;
   }) => {
     try {
+      const activeDev = await prisma.tvDevice.findFirst({
+        where: {
+          OR: [
+            ...(socket.data.deviceId ? [{ id: socket.data.deviceId }, { deviceId: socket.data.deviceId }] : []),
+            ...(socket.data.hardwareId ? [{ id: socket.data.hardwareId }, { deviceId: socket.data.hardwareId }] : []),
+          ],
+          deletedAt: null,
+        },
+        include: { room: true },
+      });
+
+      if (!activeDev) return;
+
       const validScreenState = mapScreenState(data?.screenState);
       await prisma.tvDevice.update({
-        where: { id: deviceId },
+        where: { id: activeDev.id },
         data: {
           isOnline: true,
           lastSeenAt: new Date(),
@@ -303,13 +361,26 @@ function mapScreenState(raw?: string): any {
 
       await prisma.deviceHeartbeat.create({
         data: {
-          deviceId,
+          deviceId: activeDev.id,
           isOnline: true,
           appVersion: data?.appVersion,
           screenState: validScreenState,
           ipAddress: data?.ipAddress || socket.handshake.address,
         },
       });
+
+      // Broadcast live status to hotel dashboard
+      if (activeDev.hotelId) {
+        io.to(getHotelRoom(activeDev.hotelId)).emit('device.heartbeat', {
+          deviceId: activeDev.id,
+          hardwareId: activeDev.deviceId,
+          roomId: activeDev.roomId,
+          roomNumber: activeDev.room?.roomNumber,
+          isOnline: true,
+          status: 'ONLINE',
+          lastSeenAt: new Date().toISOString(),
+        });
+      }
     } catch (err: any) {
       logger.warn({ err: err.message }, 'Failed to record device heartbeat');
     }
@@ -318,15 +389,27 @@ function mapScreenState(raw?: string): any {
   // Handle screen state change
   socket.on(SOCKET_EVENTS.SCREEN_STATE_CHANGED, async (data: { screenState: string }) => {
     try {
+      const activeDev = await prisma.tvDevice.findFirst({
+        where: {
+          OR: [
+            ...(socket.data.deviceId ? [{ id: socket.data.deviceId }, { deviceId: socket.data.deviceId }] : []),
+            ...(socket.data.hardwareId ? [{ id: socket.data.hardwareId }, { deviceId: socket.data.hardwareId }] : []),
+          ],
+          deletedAt: null,
+        },
+      });
+
+      if (!activeDev) return;
+
       const validScreenState = mapScreenState(data?.screenState) || 'DEFAULT_MODE';
       await prisma.tvDevice.update({
-        where: { id: deviceId },
+        where: { id: activeDev.id },
         data: { screenState: validScreenState },
       });
 
-      if (hotelId) {
-        socket.to(getHotelRoom(hotelId)).emit(SOCKET_EVENTS.ROOM_STATUS_UPDATED, {
-          deviceId,
+      if (activeDev.hotelId) {
+        socket.to(getHotelRoom(activeDev.hotelId)).emit(SOCKET_EVENTS.ROOM_STATUS_UPDATED, {
+          deviceId: activeDev.id,
           screenState: validScreenState,
         });
       }
@@ -337,24 +420,52 @@ function mapScreenState(raw?: string): any {
 }
 
 async function handleDeviceDisconnect(io: Server, socket: Socket) {
-  const { deviceId, hotelId } = socket.data;
-  if (!deviceId) return;
+  const { deviceId, hardwareId, hotelId } = socket.data;
+  if (!deviceId && !hardwareId) return;
 
   try {
-    await prisma.tvDevice.update({
-      where: { id: deviceId },
-      data: { isOnline: false, status: 'OFFLINE', lastSeenAt: new Date() },
+    const activeDev = await prisma.tvDevice.findFirst({
+      where: {
+        OR: [
+          ...(deviceId ? [{ id: deviceId }, { deviceId }] : []),
+          ...(hardwareId ? [{ id: hardwareId }, { deviceId: hardwareId }] : []),
+        ],
+        deletedAt: null,
+      },
+      include: { room: true },
     });
 
-    await prisma.deviceHeartbeat.create({
-      data: { deviceId, isOnline: false },
-    });
-
-    if (hotelId) {
-      io.to(getHotelRoom(hotelId)).emit(SOCKET_EVENTS.DEVICE_OFFLINE, {
-        deviceId,
-        timestamp: new Date().toISOString(),
+    if (activeDev) {
+      await prisma.tvDevice.update({
+        where: { id: activeDev.id },
+        data: { isOnline: false, status: 'OFFLINE', lastSeenAt: new Date() },
       });
+
+      await prisma.deviceHeartbeat.create({
+        data: { deviceId: activeDev.id, isOnline: false },
+      });
+
+      const effectiveHotelId = activeDev.hotelId || hotelId;
+      if (effectiveHotelId) {
+        io.to(getHotelRoom(effectiveHotelId)).emit(SOCKET_EVENTS.DEVICE_OFFLINE, {
+          deviceId: activeDev.id,
+          hardwareId: activeDev.deviceId,
+          roomId: activeDev.roomId,
+          roomNumber: activeDev.room?.roomNumber,
+          isOnline: false,
+          status: 'OFFLINE',
+          timestamp: new Date().toISOString(),
+        });
+        io.to(getHotelRoom(effectiveHotelId)).emit('device.status.updated', {
+          deviceId: activeDev.id,
+          hardwareId: activeDev.deviceId,
+          roomId: activeDev.roomId,
+          roomNumber: activeDev.room?.roomNumber,
+          isOnline: false,
+          status: 'OFFLINE',
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
   } catch (err: any) {
     logger.warn({ err: err.message, deviceId }, 'Failed to record device disconnect');

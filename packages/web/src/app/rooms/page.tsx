@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { io, Socket } from "socket.io-client";
 import {
   BedDouble,
   Plus,
@@ -28,6 +29,7 @@ import {
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { roomsApi, devicesApi, RoomDTO } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
 
 export default function RoomsPage() {
   const queryClient = useQueryClient();
@@ -124,6 +126,45 @@ export default function RoomsPage() {
     }
   };
 
+  const tokens = useAuthStore((s) => s.tokens);
+
+  // Real-time WebSocket listener for TV devices and room states
+  useEffect(() => {
+    const socketBase =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
+      "http://localhost:4000";
+
+    let socket: Socket | null = null;
+    try {
+      socket = io(socketBase, {
+        auth: { token: tokens?.accessToken },
+        transports: ["websocket", "polling"],
+        reconnectionAttempts: 5,
+      });
+
+      const refreshRooms = () => {
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
+        queryClient.invalidateQueries({ queryKey: ["devices"] });
+        queryClient.invalidateQueries({ queryKey: ["available-devices"] });
+      };
+
+      socket.on("device.heartbeat", refreshRooms);
+      socket.on("device.status.updated", refreshRooms);
+      socket.on("DEVICE_ONLINE", refreshRooms);
+      socket.on("DEVICE_OFFLINE", refreshRooms);
+      socket.on("ROOM_STATUS_CHANGED", refreshRooms);
+      socket.on("GUEST_CHECKED_IN", refreshRooms);
+      socket.on("GUEST_CHECKED_OUT", refreshRooms);
+    } catch {
+      // Socket fallback
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [tokens?.accessToken, queryClient]);
+
   const { data: serverRooms, isLoading } = useQuery({
     queryKey: ["rooms"],
     queryFn: async () => {
@@ -135,6 +176,7 @@ export default function RoomsPage() {
       }
     },
     placeholderData: (prev) => prev,
+    refetchInterval: 10000,
   });
 
   const { data: serverAvailableDevices } = useQuery({
@@ -467,7 +509,17 @@ export default function RoomsPage() {
                           room.currentGuest.name
                         : null;
 
-                      const tvOnline = room.device?.isOnline || room.device?.status?.toUpperCase() === "ONLINE";
+                      const tvOnline = Boolean(
+                        room.device &&
+                        (room.device.isOnline === true || room.device.status?.toUpperCase() === "ONLINE")
+                      );
+                      const roomTvName = room.device
+                        ? (room.device.name && room.device.name !== "Smart TV" && room.device.name !== "SmartStay TV"
+                            ? room.device.name
+                            : (room.device.deviceBrand && room.device.deviceModel
+                                ? `${room.device.deviceBrand} ${room.device.deviceModel}`
+                                : (room.device.deviceModel || room.device.name || "SmartStay TV")))
+                        : "No TV Assigned";
 
                       return (
                         <div
@@ -545,8 +597,8 @@ export default function RoomsPage() {
                               <div className="flex items-center justify-between text-[11px]">
                                 <div className="flex items-center gap-1.5 min-w-0">
                                   <Tv className={`w-3.5 h-3.5 shrink-0 ${room.device ? (tvOnline ? "text-emerald-600" : "text-slate-500") : "text-slate-300"}`} />
-                                  <span className="font-semibold text-slate-800 truncate">
-                                    {room.device ? (room.device.name || "SmartStay TV") : "No TV Assigned"}
+                                  <span className="font-semibold text-slate-800 truncate" title={roomTvName}>
+                                    {roomTvName}
                                   </span>
                                 </div>
                                 {room.device ? (

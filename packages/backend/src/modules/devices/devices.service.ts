@@ -355,7 +355,11 @@ export class DevicesService {
   // ─── Send Remote Command with Mandatory ACK ──────────
   async sendCommand(hotelId: string, deviceId: string, command: string, payload?: any) {
     const device = await prisma.tvDevice.findFirst({
-      where: { id: deviceId, hotelId, deletedAt: null },
+      where: {
+        OR: [{ id: deviceId }, { deviceId }],
+        hotelId,
+        deletedAt: null,
+      },
       include: { room: true },
     });
     if (!device) throw new NotFoundError('TV device', deviceId);

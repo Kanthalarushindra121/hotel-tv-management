@@ -205,13 +205,19 @@ export class HotelsService {
       },
     });
 
-    // Emit wifi updated — TVs will refresh QR display
-    emitToHotel(hotelId, SOCKET_EVENTS.WIFI_UPDATED, {
+    // Emit wifi updated with credentials — TVs will refresh QR display immediately
+    const wifiBroadcastPayload = {
       networkName: wifi.networkName,
+      ssid: wifi.networkName,
+      password: wifi.password || '',
       securityType: wifi.securityType,
+      status: 'MATCHED',
       qrCodeUrl: wifi.qrCodeUrl,
       timestamp: new Date().toISOString(),
-    });
+    };
+    emitToHotel(hotelId, SOCKET_EVENTS.WIFI_UPDATED, wifiBroadcastPayload);
+    emitToHotel(hotelId, 'wifi.updated', wifiBroadcastPayload);
+    emitToHotel(hotelId, SOCKET_EVENTS.CONTENT_UPDATED, { wifi: wifiBroadcastPayload });
 
     return wifi;
   }

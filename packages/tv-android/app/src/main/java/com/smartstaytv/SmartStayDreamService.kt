@@ -233,14 +233,14 @@ class SmartStayDreamService : DreamService() {
     }
 
     private fun renderScreensaverState() {
-        val hotelName = prefs.getString("hotel_name", "risky resto") ?: "risky resto"
+        val hotelName = prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad"
         val tagline = prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality."
-        val roomNumber = prefs.getString("room_number", "122") ?: "122"
+        val roomNumber = prefs.getString("room_number", "") ?: ""
         val guestName = prefs.getString("guest_name", null)
-        val checkoutTime = prefs.getString("checkout_time", "11:00") ?: "11:00"
+        val checkoutTime = prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM"
         val conciergePhone = prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"
         val quietHours = prefs.getString("quiet_hours", "22:00 – 07:00") ?: "22:00 – 07:00"
-        val wifiSsid = prefs.getString("wifi_ssid", "risky_resto_Guest") ?: "risky_resto_Guest"
+        val wifiSsid = prefs.getString("wifi_ssid", "") ?: ""
         val wifiPass = prefs.getString("wifi_pass", "") ?: ""
         val wifiStatus = prefs.getString("wifi_status", "MATCHED") ?: "MATCHED"
         val amenities = prefs.getString("amenities_cached", "• Fitness Center (24/7)\n• Valet Parking (Complimentary)\n• 24/7 Room Service (Dial 9)")
@@ -248,9 +248,9 @@ class SmartStayDreamService : DreamService() {
         tvHotelName?.text = hotelName
         tvHotelTagline?.text = tagline
         tvGuestHotelMini?.text = hotelName.uppercase(Locale.getDefault())
-        tvBadgeRoomHotel?.text = "ROOM $roomNumber"
-        tvBadgeRoomGuest?.text = roomNumber
-        tvCheckoutRoomDeparture?.text = "Room $roomNumber • Departure"
+        tvBadgeRoomHotel?.text = if (roomNumber.isNotEmpty()) "ROOM $roomNumber" else "ROOM --"
+        tvBadgeRoomGuest?.text = if (roomNumber.isNotEmpty()) roomNumber else "--"
+        tvCheckoutRoomDeparture?.text = if (roomNumber.isNotEmpty()) "Room $roomNumber • Departure" else "Room Departure"
         tvCheckoutSub?.text = "We hope you had a pleasant stay at $hotelName."
 
         tvHotelHospitalityDesc?.text = "Welcome to $hotelName. Our property features state-of-the-art guest rooms and 24/7 dedicated reception."

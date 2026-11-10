@@ -204,14 +204,23 @@ export class WifiService {
       return z;
     });
 
-    // Emit updates to affected rooms' TVs
+    // Emit updates to affected rooms' TVs with decrypted password & matched status
+    const plainPassword = passwordChanged ? data.password : (existing.encryptedPassword && existing.passwordIv && existing.passwordTag ? decryptPassword(existing.encryptedPassword, existing.passwordIv, existing.passwordTag) : '');
+    const wifiPayload = {
+      zoneId,
+      ssid: updated.ssid,
+      networkName: updated.ssid,
+      password: plainPassword || '',
+      securityType: updated.securityType,
+      status: 'MATCHED',
+      timestamp: new Date().toISOString(),
+    };
+
     for (const room of existing.rooms) {
-      if (room.device?.isOnline) {
-        emitToDevice(room.device.id, SOCKET_EVENTS.WIFI_UPDATED, {
-          zoneId,
-          ssid: updated.ssid,
-          timestamp: new Date().toISOString(),
-        });
+      if (room.device) {
+        emitToDevice(room.device.id, SOCKET_EVENTS.WIFI_UPDATED, wifiPayload);
+        emitToDevice(room.device.id, 'wifi.updated', wifiPayload);
+        emitToDevice(room.device.id, SOCKET_EVENTS.CONTENT_UPDATED, { wifi: wifiPayload });
       }
     }
 
@@ -220,6 +229,7 @@ export class WifiService {
       zoneId,
       name: updated.name,
       ssid: updated.ssid,
+      status: 'MATCHED',
     });
 
     return this.maskZone(updated);

@@ -373,14 +373,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSavedConfig() {
         val isPaired = prefs.getBoolean("is_paired", false)
-        val hotelName = prefs.getString("hotel_name", "risky resto") ?: "risky resto"
+        val hotelName = prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad"
         val tagline = prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality."
-        val roomNumber = prefs.getString("room_number", "122") ?: "122"
-        val wifiSsid = prefs.getString("wifi_ssid", "risky_resto_Guest") ?: "risky_resto_Guest"
+        val roomNumber = prefs.getString("room_number", "") ?: ""
+        val wifiSsid = prefs.getString("wifi_ssid", "") ?: ""
         val wifiPass = prefs.getString("wifi_pass", "") ?: ""
         val wifiStatus = prefs.getString("wifi_status", "MATCHED") ?: "MATCHED"
         val guestName = prefs.getString("guest_name", null)
-        val checkoutTime = prefs.getString("checkout_time", "11:00") ?: "11:00"
+        val checkoutTime = prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM"
         val conciergePhone = prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"
         val quietHours = prefs.getString("quiet_hours", "22:00 – 07:00") ?: "22:00 – 07:00"
         val amenities = prefs.getString("amenities_cached", "• Fitness Center (24/7)\n• Valet Parking (Complimentary)\n• 24/7 Room Service (Dial 9)")
@@ -389,9 +389,9 @@ class MainActivity : AppCompatActivity() {
         tvHotelName.text = hotelName
         tvHotelTagline.text = tagline
         tvGuestHotelMini.text = hotelName.uppercase(Locale.getDefault())
-        tvBadgeRoomHotel.text = "ROOM $roomNumber"
-        tvBadgeRoomGuest.text = roomNumber
-        tvCheckoutRoomDeparture.text = "Room $roomNumber • Departure"
+        tvBadgeRoomHotel.text = if (roomNumber.isNotEmpty()) "ROOM $roomNumber" else "ROOM --"
+        tvBadgeRoomGuest.text = if (roomNumber.isNotEmpty()) roomNumber else "--"
+        tvCheckoutRoomDeparture.text = if (roomNumber.isNotEmpty()) "Room $roomNumber • Departure" else "Room Departure"
         tvCheckoutSub.text = "We hope you had a pleasant stay at $hotelName."
 
         tvHotelHospitalityDesc.text = "Welcome to $hotelName. Our property features state-of-the-art guest rooms and 24/7 dedicated reception."
@@ -403,7 +403,7 @@ class MainActivity : AppCompatActivity() {
         tvHotelAmenitiesList.text = amenities
         tvGuestAmenitiesList.text = amenities
 
-        tvResRoomNum.text = roomNumber
+        tvResRoomNum.text = if (roomNumber.isNotEmpty()) roomNumber else "--"
         tvResCheckoutVal.text = "By $checkoutTime"
 
         renderWifiDetails(wifiSsid, wifiPass, wifiStatus)
@@ -453,6 +453,11 @@ class MainActivity : AppCompatActivity() {
         headerGuest.visibility = View.GONE
         headerCheckout.visibility = View.GONE
 
+        val currentRoom = prefs.getString("room_number", "") ?: ""
+        if (currentRoom.isNotEmpty()) {
+            tvBadgeRoomHotel.text = "ROOM $currentRoom"
+        }
+
         layoutStateHotel.visibility = View.VISIBLE
         layoutStateGuest.visibility = View.GONE
         layoutStateCheckout.visibility = View.GONE
@@ -498,6 +503,11 @@ class MainActivity : AppCompatActivity() {
         headerCheckout.visibility = View.VISIBLE
         headerHotel.visibility = View.GONE
         headerGuest.visibility = View.GONE
+
+        val currentRoom = prefs.getString("room_number", "") ?: ""
+        if (currentRoom.isNotEmpty()) {
+            tvCheckoutRoomDeparture.text = "Room $currentRoom • Departure"
+        }
 
         layoutStateCheckout.visibility = View.VISIBLE
         layoutStateHotel.visibility = View.GONE
@@ -615,24 +625,24 @@ class MainActivity : AppCompatActivity() {
                 data.optJSONObject("hotel")?.optString("name", "risky resto") ?: "risky resto"
             }
             val roomObj = data.optJSONObject("room")
-            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")) ?: "122"
+            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
 
             val settings = data.optJSONObject("settings")
-            val checkout = settings?.optString("checkOutTime", "11:00") ?: "11:00"
+            val checkout = settings?.optString("checkOutTime", "11:00 AM") ?: "11:00 AM"
             val phone = settings?.optString("receptionPhone", "+91 85559 72884") ?: "+91 85559 72884"
             val qStart = settings?.optString("quietHoursStart", "22:00") ?: "22:00"
             val qEnd = settings?.optString("quietHoursEnd", "07:00") ?: "07:00"
             val quietHours = "$qStart – $qEnd"
 
             val wifi = data.optJSONObject("wifi")
-            val wifiSsid = wifi?.optString("networkName", "") ?: ""
+            val wifiSsid = wifi?.optString("networkName", wifi?.optString("ssid", "")) ?: ""
             val wifiPass = wifi?.optString("password", "") ?: ""
             val wifiStatus = wifi?.optString("status", "MATCHED") ?: "MATCHED"
 
             // Save to prefs
             prefs.edit().apply {
                 putString("hotel_name", hotelName)
-                putString("room_number", roomNum)
+                if (roomNum.isNotEmpty()) putString("room_number", roomNum)
                 putString("checkout_time", checkout)
                 putString("concierge_phone", phone)
                 putString("quiet_hours", quietHours)
@@ -644,10 +654,12 @@ class MainActivity : AppCompatActivity() {
             // Update UI
             tvHotelName.text = hotelName
             tvGuestHotelMini.text = hotelName.uppercase(Locale.getDefault())
-            tvBadgeRoomHotel.text = "ROOM $roomNum"
-            tvBadgeRoomGuest.text = roomNum
-            tvResRoomNum.text = roomNum
-            tvCheckoutRoomDeparture.text = "Room $roomNum • Departure"
+            if (roomNum.isNotEmpty()) {
+                tvBadgeRoomHotel.text = "ROOM $roomNum"
+                tvBadgeRoomGuest.text = roomNum
+                tvResRoomNum.text = roomNum
+                tvCheckoutRoomDeparture.text = "Room $roomNum • Departure"
+            }
             tvHotelHospitalityDesc.text = "Welcome to $hotelName. Our property features state-of-the-art guest rooms and 24/7 dedicated reception."
             tvHotelCheckoutLabel.text = "✓ Standard Check-out: $checkout"
             tvResCheckoutVal.text = "By $checkout"
@@ -708,7 +720,11 @@ class MainActivity : AppCompatActivity() {
                 .setReconnectionAttempts(Int.MAX_VALUE)
                 .setReconnectionDelay(2000)
                 .setTimeout(10000)
-                .setAuth(mapOf("deviceId" to hardwareId, "deviceToken" to (deviceToken ?: "")))
+                .setAuth(mapOf(
+                    "deviceId" to hardwareId,
+                    "hardwareId" to hardwareId,
+                    "deviceToken" to (deviceToken ?: "")
+                ))
                 .build()
 
             socket = IO.socket(backendUrl, options)
@@ -733,15 +749,20 @@ class MainActivity : AppCompatActivity() {
                     if (data != null) {
                         val token = data.optString("deviceToken", "")
                         val roomObj = data.optJSONObject("room")
-                        val roomNum = roomObj?.optString("roomNumber", "122") ?: "122"
-                        prefs.edit()
-                            .putBoolean("is_paired", true)
-                            .putString("room_number", roomNum)
-                            .apply()
-                        if (token.isNotEmpty()) {
-                            prefs.edit().putString("device_token", token).apply()
-                        }
+                        val roomNum = roomObj?.optString("roomNumber", roomObj.optString("number", "")) ?: ""
+                        prefs.edit().apply {
+                            putBoolean("is_paired", true)
+                            if (roomNum.isNotEmpty()) putString("room_number", roomNum)
+                            if (token.isNotEmpty()) putString("device_token", token)
+                        }.apply()
+
                         runOnUiThread {
+                            if (roomNum.isNotEmpty()) {
+                                tvBadgeRoomHotel.text = "ROOM $roomNum"
+                                tvBadgeRoomGuest.text = roomNum
+                                tvResRoomNum.text = roomNum
+                                tvCheckoutRoomDeparture.text = "Room $roomNum • Departure"
+                            }
                             showStateHotel()
                             val connectedSsid = getConnectedWifiSsid()
                             socket?.emit("device.request_sync", JSONObject().apply {
@@ -875,17 +896,66 @@ class MainActivity : AppCompatActivity() {
             socket?.on("hotel.settings.updated") { onRefresh(it) }
             socket?.on("hotel.screensaver.updated") { onRefresh(it) }
 
-            // REMOTE DEVICE COMMANDS
+            // REMOTE DEVICE COMMANDS WITH VISUAL EXECUTION & ACK
             socket?.on("device.command") { args ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     val cmd = data?.optString("command", "")
+                    val payload = data?.optJSONObject("payload")
                     val ack = if (args.size > 1) args[args.size - 1] as? io.socket.client.Ack else null
-                    if (cmd == "CLEAR_GUEST") {
-                        prefs.edit().remove("guest_name").apply()
-                        runOnUiThread { showStateHotel() }
+
+                    Log.i(TAG, "📥 Executing remote command: $cmd with payload: $payload")
+
+                    runOnUiThread {
+                        when (cmd) {
+                            "SEND_MESSAGE", "MESSAGE", "ALERT" -> {
+                                val msgText = payload?.optString("message", data?.optString("message", ""))
+                                    ?: (payload?.optString("text", "") ?: "")
+                                val msgTitle = payload?.optString("title", "Message from Front Desk") ?: "Message from Front Desk"
+                                if (msgText.isNotEmpty()) {
+                                    showOnScreenAlert(msgTitle, msgText)
+                                }
+                            }
+                            "REFRESH_SCREEN", "REBOOT" -> {
+                                val connectedSsid = getConnectedWifiSsid()
+                                socket?.emit("device.request_sync", JSONObject().apply {
+                                    put("deviceId", hardwareId)
+                                    if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                                })
+                                Toast.makeText(this@MainActivity, "🔄 Display refreshed by Front Desk", Toast.LENGTH_SHORT).show()
+                            }
+                            "UPDATE_ROOM" -> {
+                                val newRoom = payload?.optString("roomNumber", payload?.optString("number", "")) ?: ""
+                                if (newRoom.isNotEmpty()) {
+                                    prefs.edit().putString("room_number", newRoom).apply()
+                                    tvBadgeRoomHotel.text = "ROOM $newRoom"
+                                    tvBadgeRoomGuest.text = newRoom
+                                    tvResRoomNum.text = newRoom
+                                    tvCheckoutRoomDeparture.text = "Room $newRoom • Departure"
+                                    Toast.makeText(this@MainActivity, "Room updated to $newRoom", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            "REFRESH_WIFI" -> {
+                                reportConnectedSsidToBackend()
+                                Toast.makeText(this@MainActivity, "Wi-Fi refreshed", Toast.LENGTH_SHORT).show()
+                            }
+                            "CHECKOUT_REMINDER", "CHECKOUT_NOTIFY" -> {
+                                showStateCheckout()
+                                Toast.makeText(this@MainActivity, "Checkout reminder received", Toast.LENGTH_LONG).show()
+                            }
+                            "CLEAR_GUEST" -> {
+                                prefs.edit().remove("guest_name").apply()
+                                showStateHotel()
+                                Toast.makeText(this@MainActivity, "Guest checked out", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
-                    ack?.call(JSONObject().apply { put("status", "SUCCESS") })
+
+                    ack?.call(JSONObject().apply {
+                        put("status", "SUCCESS")
+                        put("command", cmd)
+                        put("receivedAt", System.currentTimeMillis())
+                    })
                 }
             }
 
@@ -897,14 +967,63 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendHeartbeat() {
         if (socket?.connected() == true) {
+            val hwId = getHardwareId()
             val payload = JSONObject().apply {
-                put("hardwareId", getHardwareId())
+                put("hardwareId", hwId)
+                put("deviceId", hwId)
                 put("screenState", currentState.name)
                 put("appVersion", "1.0.0")
                 val ssid = getConnectedWifiSsid()
                 if (ssid != null) put("connectedSsid", ssid)
             }
             socket?.emit("device.heartbeat", payload)
+        }
+    }
+
+    private fun showOnScreenAlert(title: String, message: String) {
+        try {
+            val alertLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(50, 40, 50, 40)
+                setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+            }
+
+            val tvTitle = TextView(this).apply {
+                text = "🔔 $title"
+                textSize = 20f
+                setTextColor(android.graphics.Color.parseColor("#38BDF8"))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 16)
+            }
+            alertLayout.addView(tvTitle)
+
+            val tvMessage = TextView(this).apply {
+                text = message
+                textSize = 16f
+                setTextColor(android.graphics.Color.WHITE)
+                setLineSpacing(1.3f, 1.2f)
+                setPadding(0, 0, 0, 24)
+            }
+            alertLayout.addView(tvMessage)
+
+            val dialog = android.app.AlertDialog.Builder(this)
+                .setView(alertLayout)
+                .setPositiveButton("Dismiss (OK)", null)
+                .create()
+
+            dialog.show()
+
+            // Auto-dismiss after 20 seconds so display is not blocked permanently
+            handler.postDelayed({
+                try {
+                    if (dialog.isShowing) dialog.dismiss()
+                } catch (_: Exception) {}
+            }, 20000)
+
+            Toast.makeText(this, "$title: $message", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error displaying alert: ${e.message}")
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 

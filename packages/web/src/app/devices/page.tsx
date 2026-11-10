@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { io, Socket } from "socket.io-client";
 import {
   Tv,
   Plus,
@@ -28,10 +29,12 @@ import {
   Activity,
   Trash2,
   AlertTriangle,
+  Edit2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { devicesApi, roomsApi, RoomDTO } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth-store";
 
 export default function DevicesPage() {
   const queryClient = useQueryClient();
@@ -58,6 +61,45 @@ export default function DevicesPage() {
   // Delete TV Modal State
   const [deleteModalDevice, setDeleteModalDevice] = useState<any | null>(null);
 
+  const tokens = useAuthStore((s) => s.tokens);
+
+  // Real-time WebSocket connection to TV fleet status
+  useEffect(() => {
+    const socketBase =
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
+      "http://localhost:4000";
+
+    let socket: Socket | null = null;
+    try {
+      socket = io(socketBase, {
+        auth: { token: tokens?.accessToken },
+        transports: ["websocket", "polling"],
+        reconnectionAttempts: 5,
+      });
+
+      const refreshAll = () => {
+        queryClient.invalidateQueries({ queryKey: ["devices"] });
+        queryClient.invalidateQueries({ queryKey: ["rooms"] });
+        queryClient.invalidateQueries({ queryKey: ["system-diagnostics"] });
+      };
+
+      socket.on("device.heartbeat", refreshAll);
+      socket.on("device.status.updated", refreshAll);
+      socket.on("DEVICE_ONLINE", refreshAll);
+      socket.on("DEVICE_OFFLINE", refreshAll);
+      socket.on("ROOM_STATUS_CHANGED", refreshAll);
+      socket.on("DEVICE_PAIRED", refreshAll);
+      socket.on("DEVICE_UNPAIRED", refreshAll);
+    } catch {
+      // Socket fallback
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
+  }, [tokens?.accessToken, queryClient]);
+
   // Fetch all devices for this hotel
   const { data: serverDevices, isLoading, refetch } = useQuery({
     queryKey: ["devices"],
@@ -70,7 +112,7 @@ export default function DevicesPage() {
       }
     },
     placeholderData: (prev) => prev,
-    refetchInterval: 30000,
+    refetchInterval: 10000,
   });
 
   // Fetch System Diagnostics
@@ -268,7 +310,10 @@ export default function DevicesPage() {
     });
   }, [devices, filterStatus, searchQuery]);
 
-  const onlineCount = useMemo(() => devices.filter((d: any) => d.isOnline || d.status === "ONLINE").length, [devices]);
+  const onlineCount = useMemo(
+    () => devices.filter((d: any) => Boolean(d.isOnline === true || d.status?.toUpperCase() === "ONLINE")).length,
+    [devices]
+  );
   const offlineCount = useMemo(() => devices.length - onlineCount, [devices.length, onlineCount]);
 
   return (
@@ -465,8 +510,13 @@ export default function DevicesPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {filtered.map((dev: any) => {
-                    const isOnline = dev.isOnline || dev.status === "ONLINE";
+                    const isOnline = Boolean(dev.isOnline === true || dev.status?.toUpperCase() === "ONLINE");
                     const roomNumber = dev.room?.roomNumber || dev.roomNumber || "Unassigned";
+                    const deviceDisplayName = dev.name && dev.name !== "SmartStay Android TV" && dev.name !== "Smart TV"
+                      ? dev.name
+                      : (dev.deviceBrand && dev.deviceModel
+                          ? `${dev.deviceBrand} ${dev.deviceModel}`
+                          : (dev.deviceModel || dev.model || "Android TV Display"));
 
                     return (
                       <tr key={dev.id} className="hover:bg-slate-50/70 transition-colors">
@@ -480,11 +530,12 @@ export default function DevicesPage() {
                               <Tv className="w-4 h-4" />
                             </div>
                             <div>
-                              <span className="font-bold text-slate-900 block">
-                                {dev.name || dev.model || "SmartStay Android TV"}
+                              <span className="font-bold text-slate-900 block" title={deviceDisplayName}>
+                                {deviceDisplayName}
                               </span>
                               <span className="text-[11px] text-slate-400 font-mono">
-                                Hardware: {dev.deviceId ? dev.deviceId.substring(0, 18) : dev.id.substring(0, 8)}
+                                {dev.deviceBrand && dev.name ? `${dev.deviceBrand} ${dev.deviceModel || ""} • ` : ""}
+                                Hardware: {dev.deviceId ? dev.deviceId.substring(0, 22) : dev.id.substring(0, 8)}
                               </span>
                             </div>
                           </div>

@@ -31,6 +31,9 @@ import {
   Copy,
   PhoneCall,
   Play,
+  Edit2,
+  X,
+  Wine,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -167,6 +170,209 @@ export default function SettingsPage() {
   const [newAmenityName, setNewAmenityName] = useState("");
   const [newAmenityHours, setNewAmenityHours] = useState("");
   const [newAmenityIcon, setNewAmenityIcon] = useState("sparkles");
+
+  // ═══════════════ IN-PLACE SIMULATION EDITING STATE & HANDLERS ═══════════════
+  type SimFieldType =
+    | "hotel_name"
+    | "tagline"
+    | "checkout_time"
+    | "phone"
+    | "quiet_hours"
+    | "wifi"
+    | "amenities"
+    | "departure_reminders";
+
+  const [activeSimModal, setActiveSimModal] = useState<SimFieldType | null>(null);
+  const [isSavingSimField, setIsSavingSimField] = useState(false);
+
+  // Draft state for in-place edits
+  const [simDraftHotelName, setSimDraftHotelName] = useState("");
+  const [simDraftTagline, setSimDraftTagline] = useState("");
+  const [simDraftCheckoutTime, setSimDraftCheckoutTime] = useState("");
+  const [simDraftPhone, setSimDraftPhone] = useState("");
+  const [simDraftQuietStart, setSimDraftQuietStart] = useState("");
+  const [simDraftQuietEnd, setSimDraftQuietEnd] = useState("");
+  const [simDraftWifiSsid, setSimDraftWifiSsid] = useState("");
+  const [simDraftWifiPass, setSimDraftWifiPass] = useState("");
+  const [simDraftWifiSec, setSimDraftWifiSec] = useState<"WPA2" | "WPA3" | "WPA" | "nopass">("WPA2");
+
+  // Amenities CRUD inside simulation
+  const [simNewAmenityName, setSimNewAmenityName] = useState("");
+  const [simNewAmenityHours, setSimNewAmenityHours] = useState("");
+  const [simNewAmenityIcon, setSimNewAmenityIcon] = useState("sparkles");
+  const [editingAmenityId, setEditingAmenityId] = useState<string | null>(null);
+  const [editAmenityName, setEditAmenityName] = useState("");
+  const [editAmenityHours, setEditAmenityHours] = useState("");
+  const [editAmenityIcon, setEditAmenityIcon] = useState("sparkles");
+
+  // Departure rules CRUD inside simulation
+  const [simNewRuleText, setSimNewRuleText] = useState("");
+
+  const openSimModal = (field: SimFieldType) => {
+    if (field === "hotel_name") {
+      setSimDraftHotelName(form.name || hotelStore.hotelName || "");
+    } else if (field === "tagline") {
+      setSimDraftTagline(form.tagline || hotelStore.tagline || "");
+    } else if (field === "checkout_time") {
+      setSimDraftCheckoutTime(form.checkOutTime || hotelStore.checkoutTime || "11:00 AM");
+    } else if (field === "phone") {
+      setSimDraftPhone(form.phone || hotelStore.conciergePhone || "");
+    } else if (field === "quiet_hours") {
+      setSimDraftQuietStart(form.quietHoursStart || hotelStore.quietHoursStart || "22:00");
+      setSimDraftQuietEnd(form.quietHoursEnd || hotelStore.quietHoursEnd || "07:00");
+    } else if (field === "wifi") {
+      setSimDraftWifiSsid(wifiForm.networkName || hotelStore.wifiNetwork || "");
+      setSimDraftWifiPass(wifiForm.password || hotelStore.wifiPassword || "");
+      setSimDraftWifiSec(wifiForm.securityType || hotelStore.wifiSecurity || "WPA2");
+    }
+    setActiveSimModal(field);
+  };
+
+  const handleSaveSimField = async (field: SimFieldType) => {
+    setIsSavingSimField(true);
+    try {
+      if (field === "hotel_name") {
+        const val = simDraftHotelName.trim();
+        if (!val) {
+          toast.error("Hotel name cannot be empty");
+          return;
+        }
+        await hotelApi.updateProfile({ name: val });
+        setForm((prev) => ({ ...prev, name: val }));
+        hotelStore.updateSettings({ hotelName: val });
+        queryClient.invalidateQueries({ queryKey: ["hotel-profile"] });
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Hotel Name updated and synced to all TVs!");
+      } else if (field === "tagline") {
+        const val = simDraftTagline.trim();
+        await hotelApi.updateProfile({ tagline: val });
+        setForm((prev) => ({ ...prev, tagline: val }));
+        hotelStore.updateSettings({ tagline: val });
+        queryClient.invalidateQueries({ queryKey: ["hotel-profile"] });
+        toast.success("Hotel Subtitle / Tagline updated and synced to TVs!");
+      } else if (field === "checkout_time") {
+        const val = simDraftCheckoutTime.trim();
+        await hotelApi.updateSettings({ checkOutTime: val });
+        setForm((prev) => ({ ...prev, checkOutTime: val }));
+        hotelStore.updateSettings({ checkoutTime: val });
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Check-out time updated and synced to TVs!");
+      } else if (field === "phone") {
+        const val = simDraftPhone.trim();
+        await hotelApi.updateProfile({ phone: val });
+        setForm((prev) => ({ ...prev, phone: val }));
+        hotelStore.updateSettings({ conciergePhone: val });
+        queryClient.invalidateQueries({ queryKey: ["hotel-profile"] });
+        toast.success("Front Desk Phone updated and synced to TVs!");
+      } else if (field === "quiet_hours") {
+        const start = simDraftQuietStart.trim();
+        const end = simDraftQuietEnd.trim();
+        await hotelApi.updateSettings({ quietHoursStart: start, quietHoursEnd: end });
+        setForm((prev) => ({ ...prev, quietHoursStart: start, quietHoursEnd: end }));
+        hotelStore.updateSettings({ quietHoursStart: start, quietHoursEnd: end });
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Quiet Hours updated and synced to TVs!");
+      } else if (field === "wifi") {
+        const ssid = simDraftWifiSsid.trim();
+        await hotelApi.updateWifi({
+          networkName: ssid,
+          password: simDraftWifiPass,
+          securityType: simDraftWifiSec,
+        });
+        setWifiForm({
+          networkName: ssid,
+          password: simDraftWifiPass,
+          securityType: simDraftWifiSec,
+        });
+        hotelStore.updateSettings({
+          wifiNetwork: ssid,
+          wifiPassword: simDraftWifiPass,
+          wifiSecurity: simDraftWifiSec,
+        });
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Wi-Fi network & QR code updated on TVs!");
+      } else if (field === "amenities") {
+        await hotelApi.updateAmenities(hotelStore.amenities);
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Hotel Amenities updated and synced to TVs!");
+      } else if (field === "departure_reminders") {
+        await hotelApi.updateHouseRules(form.houseRules);
+        queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+        toast.success("Departure reminders updated and synced to TVs!");
+      }
+      setActiveSimModal(null);
+    } catch (err: any) {
+      toast.error("Failed to update setting", {
+        description: err.response?.data?.message || err.message,
+      });
+    } finally {
+      setIsSavingSimField(false);
+    }
+  };
+
+  const handleSimAddAmenity = () => {
+    if (!simNewAmenityName.trim()) {
+      toast.error("Please enter amenity name");
+      return;
+    }
+    hotelStore.addAmenity(
+      simNewAmenityName.trim(),
+      simNewAmenityHours.trim() || undefined,
+      simNewAmenityIcon
+    );
+    setSimNewAmenityName("");
+    setSimNewAmenityHours("");
+    toast.success(`Added "${simNewAmenityName.trim()}"! Remember to click "Save & Sync"`);
+  };
+
+  const handleSimStartEditAmenity = (a: any) => {
+    setEditingAmenityId(a.id);
+    setEditAmenityName(a.name || "");
+    setEditAmenityHours(a.hours || "");
+    setEditAmenityIcon(a.icon || "sparkles");
+  };
+
+  const handleSimCommitEditAmenity = (id: string) => {
+    if (!editAmenityName.trim()) {
+      toast.error("Amenity name cannot be empty");
+      return;
+    }
+    hotelStore.updateAmenity(id, {
+      name: editAmenityName.trim(),
+      hours: editAmenityHours.trim() || undefined,
+      icon: editAmenityIcon,
+    });
+    setEditingAmenityId(null);
+    toast.success("Amenity updated! Remember to click 'Save & Sync'");
+  };
+
+  const handleSimRemoveAmenity = (id: string) => {
+    hotelStore.removeAmenity(id);
+    toast.info("Amenity removed. Remember to click 'Save & Sync'");
+  };
+
+  const handleSimAddRule = () => {
+    if (!simNewRuleText.trim()) return;
+    const newRule = {
+      id: `rule-${Date.now()}`,
+      text: simNewRuleText.trim(),
+      order: form.houseRules.length + 1,
+    };
+    setForm((prev) => ({
+      ...prev,
+      houseRules: [...prev.houseRules, newRule],
+    }));
+    setSimNewRuleText("");
+    toast.success("Departure step added! Remember to click 'Save & Sync'");
+  };
+
+  const handleSimRemoveRule = (id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      houseRules: prev.houseRules.filter((r) => r.id !== id),
+    }));
+    toast.info("Step removed. Click 'Save & Sync' to persist.");
+  };
 
   // Fetch from backend
   const { data: serverProfile, isLoading } = useQuery({
@@ -1648,12 +1854,30 @@ export default function SettingsPage() {
                               <span className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase block">
                                 WELCOME TO
                               </span>
-                              <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight">
-                                {simHotelName}
-                              </h1>
-                              <p className="text-[11px] text-slate-400 m-0 mt-0.5 max-w-md truncate">
-                                {simHotelTagline}
-                              </p>
+                              <div
+                                onClick={() => openSimModal("hotel_name")}
+                                className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
+                                title="Click to edit Hotel Name"
+                              >
+                                <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 tracking-tight flex items-center gap-2">
+                                  {simHotelName}
+                                  <span className="opacity-0 group-hover/edit:opacity-100 transition-opacity text-[10px] bg-sky-500/80 text-white px-1.5 py-0.5 rounded font-mono font-normal flex items-center gap-1">
+                                    <Edit2 className="w-2.5 h-2.5" /> Edit Name
+                                  </span>
+                                </h1>
+                              </div>
+                              <div
+                                onClick={() => openSimModal("tagline")}
+                                className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all block max-w-md mt-0.5"
+                                title="Click to edit Hotel Subtitle / Tagline"
+                              >
+                                <p className="text-[11px] text-slate-400 m-0 truncate flex items-center gap-1.5">
+                                  <span>{simHotelTagline}</span>
+                                  <span className="opacity-0 group-hover/edit:opacity-100 transition-opacity text-[9px] text-sky-400 font-mono flex items-center gap-0.5 shrink-0">
+                                    <Edit2 className="w-2.5 h-2.5" /> Edit Subtitle
+                                  </span>
+                                </p>
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-3">
@@ -1686,35 +1910,60 @@ export default function SettingsPage() {
                                   <p className="text-slate-300 m-0 line-clamp-2 leading-relaxed">
                                     Welcome to {simHotelName}. Our property features state-of-the-art guest rooms and 24/7 dedicated reception.
                                   </p>
-                                  <div className="flex items-center gap-1.5 text-indigo-400 font-semibold">
+                                  <div
+                                    onClick={() => openSimModal("checkout_time")}
+                                    className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all flex items-center gap-1.5 text-indigo-400 font-semibold"
+                                    title="Click to edit Standard Check-out Time"
+                                  >
                                     <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                                     <span>Standard Check-out: {simCheckoutTime}</span>
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
                                   </div>
                                 </div>
                               </div>
-                              <div className="pt-2 border-t border-white/10 text-[9px] text-slate-400">
-                                Front Desk Direct: {simPhone}
+                              <div
+                                onClick={() => openSimModal("phone")}
+                                className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all pt-2 border-t border-white/10 text-[9px] text-slate-400 flex items-center justify-between"
+                                title="Click to edit Front Desk Phone"
+                              >
+                                <span>Front Desk Direct: {simPhone}</span>
+                                <span className="opacity-0 group-hover/edit:opacity-100 text-sky-400 text-[9px] flex items-center gap-0.5">
+                                  <Edit2 className="w-2.5 h-2.5" /> Edit
+                                </span>
                               </div>
                             </div>
 
                             {/* Card 2: Connected Wi-Fi (QR Only + "Connect WiFi") */}
-                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden">
+                            <div
+                              onClick={() => openSimModal("wifi")}
+                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                              title="Click to edit Wi-Fi Network & Password"
+                            >
                               <div className="rounded-lg bg-white p-2 shadow-md shrink-0">
                                 <QRCodeSVG value={simWifiQrString} size={80} level="M" />
                               </div>
-                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide">
+                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide flex items-center gap-1">
                                 Connect WiFi
+                                <Edit2 className="w-3 h-3 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                              </span>
+                              <span className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[90%] font-mono">
+                                {simWifiSsid}
                               </span>
                             </div>
 
                             {/* Card 3: Hotel Amenities */}
-                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                            <div
+                              onClick={() => openSimModal("amenities")}
+                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                              title="Click to customize Amenities (Full CRUD)"
+                            >
                               <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
-                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
                                   HOTEL AMENITIES
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
                                 </span>
-                                <span className="text-[9px] text-slate-400 uppercase">
-                                  Property Features
+                                <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
+                                  Edit List
                                 </span>
                               </div>
                               <div className="space-y-1.5 my-2 overflow-hidden">
@@ -1744,7 +1993,14 @@ export default function SettingsPage() {
 
                           {/* Bottom Bar */}
                           <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
-                            <span>Quiet Hours: {simQuietHours} • Reception Desk: {simPhone}</span>
+                            <div
+                              onClick={() => openSimModal("quiet_hours")}
+                              className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all flex items-center gap-1"
+                              title="Click to edit Quiet Hours"
+                            >
+                              <span>Quiet Hours: {simQuietHours} • Reception Desk: {simPhone}</span>
+                              <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                            </div>
                             <span className="text-white/40 tracking-wider">
                               Press any button on TV remote to wake screen
                             </span>
@@ -1758,9 +2014,16 @@ export default function SettingsPage() {
                           {/* Header */}
                           <div className="relative z-10 flex items-center justify-between pb-2 border-b border-white/10">
                             <div>
-                              <p className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase m-0">
-                                {simHotelName}
-                              </p>
+                              <div
+                                onClick={() => openSimModal("hotel_name")}
+                                className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
+                                title="Click to edit Hotel Name"
+                              >
+                                <p className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase m-0 flex items-center gap-1">
+                                  {simHotelName}
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                </p>
+                              </div>
                               <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight">
                                 Welcome, {simGuestName}!
                               </h1>
@@ -1800,13 +2063,27 @@ export default function SettingsPage() {
                                   <span className="text-slate-400">Room</span>
                                   <span className="font-semibold text-white">101</span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div
+                                  onClick={() => openSimModal("checkout_time")}
+                                  className="group/edit cursor-pointer flex justify-between p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all"
+                                  title="Click to edit Checkout Time"
+                                >
                                   <span className="text-slate-400">Checkout</span>
-                                  <span className="font-semibold text-amber-300">By {simCheckoutTime}</span>
+                                  <span className="font-semibold text-amber-300 flex items-center gap-1">
+                                    By {simCheckoutTime}
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </span>
                                 </div>
-                                <div className="flex justify-between">
+                                <div
+                                  onClick={() => openSimModal("phone")}
+                                  className="group/edit cursor-pointer flex justify-between p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all"
+                                  title="Click to edit Front Desk Phone"
+                                >
                                   <span className="text-slate-400">Front Desk</span>
-                                  <span className="font-semibold text-white">Dial 9</span>
+                                  <span className="font-semibold text-white flex items-center gap-1">
+                                    Dial 9
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </span>
                                 </div>
                               </div>
                               <div className="pt-2 border-t border-white/10 text-[9px] text-slate-400">
@@ -1815,23 +2092,36 @@ export default function SettingsPage() {
                             </div>
 
                             {/* Card 2: In-Room Wi-Fi (QR Only + "Connect WiFi") */}
-                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden">
+                            <div
+                              onClick={() => openSimModal("wifi")}
+                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col items-center justify-center text-center overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                              title="Click to edit In-Room Wi-Fi & QR code"
+                            >
                               <div className="rounded-lg bg-white p-2 shadow-md shrink-0">
                                 <QRCodeSVG value={simWifiQrString} size={80} level="M" />
                               </div>
-                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide">
+                              <span className="text-xs font-bold text-white mt-2.5 tracking-wide flex items-center gap-1">
                                 Connect WiFi
+                                <Edit2 className="w-3 h-3 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                              </span>
+                              <span className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[90%] font-mono">
+                                {simWifiSsid}
                               </span>
                             </div>
 
                             {/* Card 3: Hotel Amenities */}
-                            <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
+                            <div
+                              onClick={() => openSimModal("amenities")}
+                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                              title="Click to customize Amenities (Full CRUD)"
+                            >
                               <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
-                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
+                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
                                   HOTEL AMENITIES
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
                                 </span>
-                                <span className="text-[9px] text-slate-400 uppercase">
-                                  Guest Services
+                                <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
+                                  Edit List
                                 </span>
                               </div>
                               <div className="space-y-1.5 my-2 overflow-hidden">
@@ -1861,7 +2151,14 @@ export default function SettingsPage() {
 
                           {/* Bottom Bar */}
                           <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-400">
-                            <span>Quiet Hours: {simQuietHours} • Reception / Front Desk: {simPhone}</span>
+                            <div
+                              onClick={() => openSimModal("quiet_hours")}
+                              className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all flex items-center gap-1"
+                              title="Click to edit Quiet Hours"
+                            >
+                              <span>Quiet Hours: {simQuietHours} • Reception / Front Desk: {simPhone}</span>
+                              <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                            </div>
                             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-900 text-[10px] font-bold shadow-xs">
                               <Play className="w-3 h-3 fill-indigo-600 text-indigo-600" />
                               <span>Press Select on Remote to Open TV Applications</span>
@@ -1882,9 +2179,16 @@ export default function SettingsPage() {
                               <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-1.5 tracking-tight">
                                 Thank You for Staying with Us!
                               </h1>
-                              <p className="text-[11px] text-slate-300 m-0 mt-0.5">
-                                We hope you had a pleasant stay at {simHotelName}.
-                              </p>
+                              <div
+                                onClick={() => openSimModal("tagline")}
+                                className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all inline-block mt-0.5"
+                                title="Click to edit Subtitle"
+                              >
+                                <p className="text-[11px] text-slate-300 m-0 flex items-center gap-1">
+                                  We hope you had a pleasant stay at {simHotelName}.
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                </p>
+                              </div>
                             </div>
 
                             <div className="text-right">
@@ -1892,45 +2196,56 @@ export default function SettingsPage() {
                                 {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                               </p>
                               <p className="text-[10px] text-amber-400 font-semibold m-0">
-                                Room 122 • Departure
+                                Room 101 • Departure
                               </p>
                             </div>
                           </div>
 
                           {/* Numbered Departure Checklist Card */}
-                          <div className="my-auto max-w-xl w-full mx-auto rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-md">
-                            <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-2.5">
-                              Departure Reminders
-                            </p>
+                          <div
+                            onClick={() => openSimModal("departure_reminders")}
+                            className="group/edit my-auto max-w-xl w-full mx-auto rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-md cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all"
+                            title="Click to edit Departure Reminders (CRUD)"
+                          >
+                            <div className="flex items-center justify-between pb-1.5 border-b border-white/10 mb-2">
+                              <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider m-0 flex items-center gap-1">
+                                Departure Reminders
+                                <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                              </p>
+                              <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
+                                Edit Checklist
+                              </span>
+                            </div>
                             <div className="flex flex-col gap-2 text-[11px] text-slate-200">
-                              <div className="flex items-center gap-2.5">
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
-                                  1
-                                </span>
-                                <span>Please check the room and safe for all personal belongings and chargers.</span>
-                              </div>
-                              <div className="flex items-center gap-2.5">
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
-                                  2
-                                </span>
-                                <span>Switch off the air conditioner, lights, and ensure faucets are closed.</span>
-                              </div>
-                              <div className="flex items-center gap-2.5">
-                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
-                                  3
-                                </span>
-                                <span>Hand over your room key card at the front desk / reception box.</span>
-                              </div>
+                              {(form.houseRules && form.houseRules.length > 0 ? form.houseRules : DEFAULT_RULES).slice(0, 3).map((rule, idx) => (
+                                <div key={rule.id || idx} className="flex items-center gap-2.5">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold shrink-0 text-white">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="truncate">{rule.text}</span>
+                                </div>
+                              ))}
                             </div>
 
                             <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[10px] text-slate-300">
-                              <div className="flex items-center gap-1.5">
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSimModal("phone");
+                                }}
+                                className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all flex items-center gap-1.5"
+                                title="Click to edit Reception Phone"
+                              >
                                 <PhoneCall className="w-3.5 h-3.5 text-indigo-400" />
                                 <span>Need luggage or airport transfer assistance? Reception: {simPhone}</span>
+                                <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setScreensaverPreviewMode("DEFAULT")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScreensaverPreviewMode("DEFAULT");
+                                }}
                                 className="border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-lg px-2.5 py-1 text-[9px] font-semibold transition-all cursor-pointer"
                               >
                                 Return to Welcome Screen
@@ -1950,6 +2265,412 @@ export default function SettingsPage() {
                     </>
                   );
                 })()}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════ IN-PLACE SIMULATION EDITING MODAL (CRUD) ═══════════════ */}
+        {activeSimModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Edit2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {activeSimModal === "hotel_name" && "Edit Hotel Name"}
+                      {activeSimModal === "tagline" && "Edit Hotel Subtitle / Tagline"}
+                      {activeSimModal === "checkout_time" && "Edit Standard Check-out Time"}
+                      {activeSimModal === "phone" && "Edit Front Desk Phone"}
+                      {activeSimModal === "quiet_hours" && "Edit Quiet Hours Schedule"}
+                      {activeSimModal === "wifi" && "Customize In-Room Wi-Fi & TV QR"}
+                      {activeSimModal === "amenities" && "Manage Hotel Amenities (CRUD)"}
+                      {activeSimModal === "departure_reminders" && "Customize Departure Reminders"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Changes persist immediately in database and synchronize with TV screens.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveSimModal(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="space-y-4 py-1">
+                {/* 1. Hotel Name */}
+                {activeSimModal === "hotel_name" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Hotel Name *</label>
+                    <input
+                      type="text"
+                      value={simDraftHotelName}
+                      onChange={(e) => setSimDraftHotelName(e.target.value)}
+                      placeholder="e.g. Grand Palace Hyderabad"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Primary property brand displayed across TV idle displays and guest welcome greetings.
+                    </p>
+                  </div>
+                )}
+
+                {/* 2. Hotel Subtitle / Tagline */}
+                {activeSimModal === "tagline" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Hotel Subtitle / Tagline *</label>
+                    <textarea
+                      rows={3}
+                      value={simDraftTagline}
+                      onChange={(e) => setSimDraftTagline(e.target.value)}
+                      placeholder="e.g. Experience world-class luxury and dedicated 24/7 guest services."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Displays directly below the hotel title on idle screensavers when rooms are unoccupied.
+                    </p>
+                  </div>
+                )}
+
+                {/* 3. Check-out Time */}
+                {activeSimModal === "checkout_time" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Standard Check-out Time *</label>
+                    <input
+                      type="text"
+                      value={simDraftCheckoutTime}
+                      onChange={(e) => setSimDraftCheckoutTime(e.target.value)}
+                      placeholder="e.g. 11:00 AM"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Formatted check-out departure time rendered on TV screensavers.
+                    </p>
+                  </div>
+                )}
+
+                {/* 4. Phone */}
+                {activeSimModal === "phone" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Front Desk Direct Phone *</label>
+                    <input
+                      type="text"
+                      value={simDraftPhone}
+                      onChange={(e) => setSimDraftPhone(e.target.value)}
+                      placeholder="e.g. +91 85559 72884"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Shown to guests for front desk, reception, and luggage/checkout assistance.
+                    </p>
+                  </div>
+                )}
+
+                {/* 5. Quiet Hours */}
+                {activeSimModal === "quiet_hours" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Quiet Hours Start</label>
+                      <input
+                        type="text"
+                        value={simDraftQuietStart}
+                        onChange={(e) => setSimDraftQuietStart(e.target.value)}
+                        placeholder="e.g. 22:00 or 10:00 PM"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Quiet Hours End</label>
+                      <input
+                        type="text"
+                        value={simDraftQuietEnd}
+                        onChange={(e) => setSimDraftQuietEnd(e.target.value)}
+                        placeholder="e.g. 07:00 or 7:00 AM"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 6. Wi-Fi & QR */}
+                {activeSimModal === "wifi" && (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Wi-Fi Network Name (SSID) *</label>
+                      <input
+                        type="text"
+                        value={simDraftWifiSsid}
+                        onChange={(e) => setSimDraftWifiSsid(e.target.value)}
+                        placeholder="e.g. GrandPalace_Guest"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Wi-Fi Password</label>
+                      <input
+                        type="text"
+                        value={simDraftWifiPass}
+                        onChange={(e) => setSimDraftWifiPass(e.target.value)}
+                        placeholder="Password (leave empty if open)"
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Security Encryption</label>
+                      <select
+                        value={simDraftWifiSec}
+                        onChange={(e: any) => setSimDraftWifiSec(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        <option value="WPA2">WPA2 / WPA3 (Recommended)</option>
+                        <option value="WPA">WPA</option>
+                        <option value="nopass">None (Open Network)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* 7. Amenities (Full CRUD) */}
+                {activeSimModal === "amenities" && (
+                  <div className="space-y-4">
+                    {/* Add New Amenity Bar */}
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
+                        + Add New Amenity
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          value={simNewAmenityName}
+                          onChange={(e) => setSimNewAmenityName(e.target.value)}
+                          placeholder="Amenity Name (e.g. Heated Pool)"
+                          className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={simNewAmenityHours}
+                          onChange={(e) => setSimNewAmenityHours(e.target.value)}
+                          placeholder="Hours / Access (e.g. 24/7)"
+                          className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white"
+                        />
+                        <select
+                          value={simNewAmenityIcon}
+                          onChange={(e) => setSimNewAmenityIcon(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white"
+                        >
+                          <option value="sparkles">Sparkles / Luxury</option>
+                          <option value="utensils">Restaurant / Dining</option>
+                          <option value="waves">Pool / Spa</option>
+                          <option value="dumbbell">Gym / Fitness</option>
+                          <option value="car">Parking / Valet</option>
+                          <option value="coffee">Coffee / Breakfast</option>
+                          <option value="bell">Room Service</option>
+                          <option value="wifi">Wi-Fi</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleSimAddAmenity}
+                        className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Amenity to List</span>
+                      </button>
+                    </div>
+
+                    {/* Current Amenities List */}
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
+                        Current Amenities ({hotelStore.amenities.length})
+                      </span>
+                      {hotelStore.amenities.map((a) => {
+                        const isEditing = editingAmenityId === a.id;
+
+                        if (isEditing) {
+                          return (
+                            <div key={a.id} className="p-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <input
+                                  type="text"
+                                  value={editAmenityName}
+                                  onChange={(e) => setEditAmenityName(e.target.value)}
+                                  className="px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                                />
+                                <input
+                                  type="text"
+                                  value={editAmenityHours}
+                                  onChange={(e) => setEditAmenityHours(e.target.value)}
+                                  className="px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                                />
+                                <select
+                                  value={editAmenityIcon}
+                                  onChange={(e) => setEditAmenityIcon(e.target.value)}
+                                  className="px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                                >
+                                  <option value="sparkles">Sparkles</option>
+                                  <option value="utensils">Dining</option>
+                                  <option value="waves">Pool</option>
+                                  <option value="dumbbell">Fitness</option>
+                                  <option value="car">Parking</option>
+                                  <option value="coffee">Coffee</option>
+                                  <option value="bell">Room Service</option>
+                                  <option value="wifi">Wi-Fi</option>
+                                </select>
+                              </div>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingAmenityId(null)}
+                                  className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSimCommitEditAmenity(a.id)}
+                                  className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold"
+                                >
+                                  Done
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={a.id}
+                            className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:bg-slate-50 text-xs transition-colors"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-5 h-5 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                                {renderAmenityIcon(a.icon)}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="font-semibold text-slate-800 block truncate">{a.name}</span>
+                                {a.hours && <span className="text-[10px] text-slate-400 block truncate">{a.hours}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => hotelStore.toggleAmenity(a.id)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-colors ${
+                                  a.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                                }`}
+                              >
+                                {a.isActive ? "Active" : "Off"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSimStartEditAmenity(a)}
+                                className="p-1 rounded text-slate-400 hover:text-indigo-600 transition-colors"
+                                title="Edit Amenity"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSimRemoveAmenity(a.id)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
+                                title="Delete Amenity"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 8. Departure Reminders */}
+                {activeSimModal === "departure_reminders" && (
+                  <div className="space-y-3">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block">
+                        + Add Departure Step
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={simNewRuleText}
+                          onChange={(e) => setSimNewRuleText(e.target.value)}
+                          placeholder="e.g. Return room key cards to reception desk"
+                          className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSimAddRule}
+                          className="py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {(form.houseRules || DEFAULT_RULES).map((rule, idx) => (
+                        <div
+                          key={rule.id || idx}
+                          className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:bg-slate-50 text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="w-5 h-5 rounded-full bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="text-slate-700 text-xs truncate">{rule.text}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSimRemoveRule(rule.id)}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 shrink-0 ml-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveSimModal(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveSimField(activeSimModal)}
+                  disabled={isSavingSimField}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                >
+                  {isSavingSimField ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save &amp; Sync to TVs</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

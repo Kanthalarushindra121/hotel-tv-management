@@ -224,6 +224,9 @@ export interface RoomDTO {
     id: string;
     deviceId?: string;
     name?: string;
+    deviceModel?: string;
+    deviceBrand?: string;
+    model?: string;
     isOnline?: boolean;
     status: "ONLINE" | "OFFLINE" | "UNPAIRED" | "PAIRED" | string;
     screenState?: string;
