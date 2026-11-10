@@ -1,18 +1,42 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { redis } from '../../config/redis';
+import { redis, isRedisAvailable } from '../../config/redis';
 import { prisma } from '../../config/database';
 import { emitToDevice, emitToHotel, SOCKET_EVENTS } from '../realtime/socket';
 import { logger } from '../../config/logger';
 
-const queueConnection = redis.duplicate({ maxRetriesPerRequest: null });
+let queueInstance: Queue | null = null;
 
-export const reminderQueue = new Queue('checkout-reminders', {
-  connection: queueConnection,
-  defaultJobOptions: {
-    removeOnComplete: 10,
-    removeOnFail: 50,
+function getReminderQueue(): Queue | null {
+  if (!isRedisAvailable()) return null;
+  if (!queueInstance) {
+    try {
+      const queueConnection = redis.duplicate({ maxRetriesPerRequest: null });
+      queueInstance = new Queue('checkout-reminders', {
+        connection: queueConnection,
+        defaultJobOptions: {
+          removeOnComplete: 10,
+          removeOnFail: 50,
+        },
+      });
+    } catch (e: any) {
+      logger.warn(`Failed to initialize reminder BullMQ: ${e.message}`);
+      return null;
+    }
+  }
+  return queueInstance;
+}
+
+export const reminderQueue = {
+  async remove(jobId: string) {
+    const q = getReminderQueue();
+    if (q) return q.remove(jobId);
   },
-});
+  async add(name: string, data: any, opts: any) {
+    const q = getReminderQueue();
+    if (q) return q.add(name, data, opts);
+    return { id: `local_${Date.now()}` } as any;
+  },
+};
 
 export async function scheduleCheckoutReminder(
   bookingId: string,
@@ -28,35 +52,65 @@ export async function scheduleCheckoutReminder(
     return;
   }
 
-  // Use bookingId as job ID to prevent duplicates
-  await reminderQueue.remove(bookingId).catch(() => {});
+  let jobId: string | undefined = undefined;
 
-  const job = await reminderQueue.add(
-    'send-reminder',
-    { bookingId, hotelId, checkoutAt: checkoutAt.toISOString() },
-    { jobId: bookingId, delay }
-  );
+  if (isRedisAvailable()) {
+    try {
+      await Promise.race([
+        (async () => {
+          await reminderQueue.remove(bookingId).catch(() => {});
+          const job = await reminderQueue.add(
+            'send-reminder',
+            { bookingId, hotelId, checkoutAt: checkoutAt.toISOString() },
+            { jobId: bookingId, delay }
+          );
+          jobId = job?.id;
+        })(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch (err: any) {
+      logger.warn(`BullMQ reminder skipped: ${err.message}`);
+    }
+  }
 
-  // Persist reminder record
-  await prisma.checkoutReminder.upsert({
-    where: { bookingId },
-    create: { bookingId, hotelId, scheduledAt: reminderAt, jobId: job.id },
-    update: { scheduledAt: reminderAt, jobId: job.id, isCancelled: false, isSent: false, sentAt: null },
-  });
+  // Persist reminder record in DB
+  try {
+    await prisma.checkoutReminder.upsert({
+      where: { bookingId },
+      create: { bookingId, hotelId, scheduledAt: reminderAt, jobId: jobId || 'local' },
+      update: { scheduledAt: reminderAt, jobId: jobId || 'local', isCancelled: false, isSent: false, sentAt: null },
+    });
+  } catch (err: any) {
+    logger.warn(`CheckoutReminder upsert skipped: ${err.message}`);
+  }
 
-  return job.id;
+  return jobId;
 }
 
 export async function cancelCheckoutReminder(bookingId: string): Promise<void> {
-  await reminderQueue.remove(bookingId).catch(() => {});
+  if (isRedisAvailable()) {
+    try {
+      await Promise.race([
+        reminderQueue.remove(bookingId).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch {}
+  }
   await prisma.checkoutReminder.updateMany({
     where: { bookingId, isSent: false },
     data: { isCancelled: true },
-  });
+  }).catch(() => {});
 }
 
 export function setupReminderWorker() {
-  const workerConnection = redis.duplicate({ maxRetriesPerRequest: null });
+  if (!isRedisAvailable()) {
+    logger.info('Redis is in memory fallback — skipping BullMQ checkout reminder worker');
+    return null;
+  }
+
+  try {
+    const workerConnection = redis.duplicate({ maxRetriesPerRequest: null });
+
 
   const worker = new Worker(
     'checkout-reminders',
@@ -133,4 +187,9 @@ export function setupReminderWorker() {
   });
 
   return worker;
+  } catch (err: any) {
+    logger.warn(`Failed to initialize reminder BullMQ worker: ${err.message}`);
+    return null;
+  }
 }
+

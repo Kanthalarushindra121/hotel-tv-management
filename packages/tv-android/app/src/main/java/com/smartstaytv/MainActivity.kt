@@ -175,6 +175,16 @@ class MainActivity : AppCompatActivity() {
         viewPairing = findViewById(R.id.view_pairing)
         viewMainContainer = findViewById(R.id.view_main_container)
 
+        // Strict Pairing Guard: On launch, ensure unpaired devices NEVER show hotel rooms
+        val isPaired = prefs.getBoolean("is_paired", false)
+        if (!isPaired) {
+            viewPairing.visibility = View.VISIBLE
+            viewMainContainer.visibility = View.GONE
+        } else {
+            viewPairing.visibility = View.GONE
+            viewMainContainer.visibility = View.VISIBLE
+        }
+
         // Headers
         headerHotel = findViewById(R.id.header_hotel)
         headerGuest = findViewById(R.id.header_guest)
@@ -750,6 +760,18 @@ class MainActivity : AppCompatActivity() {
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null) {
+                        val isPaired = prefs.getBoolean("is_paired", false)
+                        if (!isPaired) {
+                            Log.d(TAG, "Device is not yet paired; ignoring guest.checked_in")
+                            return@onGuestCheckin
+                        }
+                        val myRoom = prefs.getString("room_number", "")
+                        val targetRoom = data.optString("roomNumber", "")
+                        if (!myRoom.isNullOrEmpty() && targetRoom.isNotEmpty() && myRoom != targetRoom) {
+                            Log.d(TAG, "Ignoring check-in: room mismatch ($myRoom vs $targetRoom)")
+                            return@onGuestCheckin
+                        }
+
                         val guestObj = data.optJSONObject("guest")
                         val guestName = if (data.has("guestName")) {
                             data.optString("guestName", "Guest")
@@ -777,7 +799,21 @@ class MainActivity : AppCompatActivity() {
             socket?.on("GUEST_CHECKED_IN") { onGuestCheckin(it) }
 
             // REAL-TIME GUEST CHECKOUT
-            val onGuestCheckout = { _: Array<Any> ->
+            val onGuestCheckout = { args: Array<Any> ->
+                val isPaired = prefs.getBoolean("is_paired", false)
+                if (!isPaired) {
+                    Log.d(TAG, "Device is not yet paired; ignoring checkout")
+                    return@onGuestCheckout
+                }
+                if (args.isNotEmpty()) {
+                    val data = args[0] as? JSONObject
+                    val myRoom = prefs.getString("room_number", "")
+                    val targetRoom = data?.optString("roomNumber", "")
+                    if (!myRoom.isNullOrEmpty() && !targetRoom.isNullOrEmpty() && myRoom != targetRoom) {
+                        Log.d(TAG, "Ignoring checkout: room mismatch ($myRoom vs $targetRoom)")
+                        return@onGuestCheckout
+                    }
+                }
                 prefs.edit().remove("guest_name").apply()
                 runOnUiThread {
                     showStateCheckout()
@@ -809,6 +845,11 @@ class MainActivity : AppCompatActivity() {
 
             // CONTENT / CONFIG UPDATE
             val onRefresh = { args: Array<Any> ->
+                val isPaired = prefs.getBoolean("is_paired", false)
+                if (!isPaired) {
+                    Log.d(TAG, "Device is not yet paired; ignoring refresh")
+                    return@onRefresh
+                }
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
                     if (data != null && (data.has("hotel") || data.has("name") || data.has("settings"))) {

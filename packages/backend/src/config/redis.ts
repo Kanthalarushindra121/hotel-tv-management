@@ -101,3 +101,8 @@ export const redis: any = new Proxy(redisClient, {
 
 export const redisSub = redis;
 export const redisPub = redis;
+
+export function isRedisAvailable(): boolean {
+  return !isUsingMemoryFallback && redisClient && redisClient.status === 'ready';
+}
+

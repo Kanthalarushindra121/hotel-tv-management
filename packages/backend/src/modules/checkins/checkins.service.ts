@@ -116,46 +116,47 @@ export class CheckinService {
     const diffDays = dayjs(data.checkOutDate).diff(dayjs(data.checkInDate), 'day', true);
     const nights = Math.max(1, Math.round(diffDays));
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Create or find guest
-      let guest;
-      if (data.guestId) {
-        guest = await tx.guest.findFirst({
-          where: { id: data.guestId, hotelId, deletedAt: null },
+    // Resolve guest record before entering transaction to minimize interactive tx duration
+    let guest: any;
+    if (data.guestId) {
+      guest = await prisma.guest.findFirst({
+        where: { id: data.guestId, hotelId, deletedAt: null },
+      });
+      if (!guest) throw new NotFoundError('Guest', data.guestId);
+    } else if (data.guestData) {
+      const cleanPhone = data.guestData.phone?.trim();
+      const cleanEmail = data.guestData.email?.trim();
+      if (cleanPhone || cleanEmail) {
+        guest = await prisma.guest.findFirst({
+          where: {
+            hotelId,
+            deletedAt: null,
+            OR: [
+              ...(cleanPhone ? [{ phone: cleanPhone }] : []),
+              ...(cleanEmail ? [{ email: cleanEmail }] : []),
+            ],
+          },
         });
-        if (!guest) throw new NotFoundError('Guest', data.guestId);
-      } else if (data.guestData) {
-        const cleanPhone = data.guestData.phone?.trim();
-        const cleanEmail = data.guestData.email?.trim();
-        if (cleanPhone || cleanEmail) {
-          guest = await tx.guest.findFirst({
-            where: {
-              hotelId,
-              deletedAt: null,
-              OR: [
-                ...(cleanPhone ? [{ phone: cleanPhone }] : []),
-                ...(cleanEmail ? [{ email: cleanEmail }] : []),
-              ],
-            },
-          });
-        }
-        if (!guest) {
-          guest = await tx.guest.create({
-            data: {
-              hotelId,
-              firstName: data.guestData.firstName || 'Guest',
-              lastName: data.guestData.lastName || '',
-              phone: cleanPhone || null,
-              email: cleanEmail || null,
-            },
-          });
-        }
-      } else {
-        throw new AppError('Guest information required', 400);
       }
+      if (!guest) {
+        guest = await prisma.guest.create({
+          data: {
+            hotelId,
+            firstName: data.guestData.firstName || 'Guest',
+            lastName: data.guestData.lastName || '',
+            phone: cleanPhone || null,
+            email: cleanEmail || null,
+          },
+        });
+      }
+    } else {
+      throw new AppError('Guest information required', 400);
+    }
 
+    // Atomic transaction for state transition with extended timeout for cloud database
+    const booking = await prisma.$transaction(async (tx) => {
       // Create booking
-      const booking = await tx.booking.create({
+      const newBooking = await tx.booking.create({
         data: {
           hotelId,
           roomId: data.roomId,
@@ -170,16 +171,12 @@ export class CheckinService {
           internalNotes: data.internalNotes,
           createdById: performedById,
         },
-        include: {
-          guest: true,
-          room: { include: { device: true } },
-        },
       });
 
       // Create checkin record
       await tx.checkin.create({
         data: {
-          bookingId: booking.id,
+          bookingId: newBooking.id,
           hotelId,
           checkedInBy: performedById,
         },
@@ -190,122 +187,105 @@ export class CheckinService {
         where: { id: data.roomId },
         data: {
           status: 'OCCUPIED',
-          currentBookingId: booking.id,
+          currentBookingId: newBooking.id,
         },
       });
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          hotelId,
-          userId: performedById,
-          action: 'GUEST_CHECKED_IN',
-          resource: 'booking',
-          resourceId: booking.id,
-          details: {
-            guestName: `${guest.firstName} ${guest.lastName}`,
-            roomNumber: booking.room.roomNumber,
-            checkInDate: data.checkInDate,
-            checkOutDate: data.checkOutDate,
-          },
-          success: true,
-        },
-      });
+      return newBooking;
+    }, { maxWait: 20000, timeout: 35000 });
 
-      return { booking, guest };
-    });
+    // Non-blocking post-checkin tasks (audit, notifications, tv broadcast, reminder)
+    prisma.auditLog.create({
+      data: {
+        hotelId,
+        userId: performedById,
+        action: 'GUEST_CHECKED_IN',
+        resource: 'booking',
+        resourceId: booking.id,
+        details: {
+          guestName: `${guest.firstName} ${guest.lastName}`,
+          roomNumber: room.roomNumber,
+          checkInDate: data.checkInDate,
+          checkOutDate: data.checkOutDate,
+        },
+        success: true,
+      },
+    }).catch(() => {});
 
     // ─── Emit real-time events ────────────────────────────
-    const hotel = await prisma.hotel.findUnique({
-      where: { id: hotelId },
-      include: {
-        settings: true,
-        wifiSettings: true,
-        amenities: { include: { amenity: true } },
-        houseRules: true,
-        checkoutSteps: true,
-        photos: true,
-      },
-    });
-
-    // Find the room's TV device
-    const device = await prisma.tvDevice.findFirst({
+    const tvPayloadHotelPromise = devicesService.getHotelTvPayload(hotelId, data.roomId);
+    const devicePromise = prisma.tvDevice.findFirst({
       where: { roomId: data.roomId, deletedAt: null },
     });
 
-    if (device) {
-      // Send personalized guest data to TV immediately
-      const guestFullName = `${result.guest.firstName} ${result.guest.lastName}`.trim();
+    Promise.all([tvPayloadHotelPromise, devicePromise]).then(([hotelTvPayload, device]) => {
+      const guestFullName = `${guest.firstName} ${guest.lastName}`.trim();
       const tvPayload = {
         guestName: guestFullName,
         name: guestFullName,
         guest: {
-          id: result.guest.id,
-          firstName: result.guest.firstName,
-          lastName: result.guest.lastName,
+          id: guest.id,
+          firstName: guest.firstName,
+          lastName: guest.lastName,
           name: guestFullName,
         },
         roomId: data.roomId,
         roomNumber: room.roomNumber,
-        checkoutTime: hotel?.settings?.checkOutTime || '11:00 AM',
+        checkoutTime: hotelTvPayload?.settings?.checkOutTime || '11:00 AM',
         booking: {
-          id: result.booking.id,
+          id: booking.id,
           roomNumber: room.roomNumber,
           checkInDate: data.checkInDate,
           checkOutDate: data.checkOutDate,
           nights,
           guestCount: data.guestCount || 1,
-          checkOutTime: hotel?.settings?.checkOutTime || '11:00 AM',
+          checkOutTime: hotelTvPayload?.settings?.checkOutTime || '11:00 AM',
         },
-        hotel: await devicesService.getHotelTvPayload(hotelId, data.roomId),
+        hotel: hotelTvPayload,
       };
-      emitToDevice(device.id, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
-      emitToDevice(device.id, 'guest.checked_in', tvPayload);
-      if (device.deviceId && device.deviceId !== device.id) {
-        emitToDevice(device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
-        emitToDevice(device.deviceId, 'guest.checked_in', tvPayload);
+
+      if (device) {
+        emitToDevice(device.id, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
+        emitToDevice(device.id, 'guest.checked_in', tvPayload);
+        if (device.deviceId && device.deviceId !== device.id) {
+          emitToDevice(device.deviceId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
+          emitToDevice(device.deviceId, 'guest.checked_in', tvPayload);
+        }
       }
-      // Also broadcast to hotel room so any TV connected to hotel can verify
+
+      // Broadcast to hotel dashboard & hotel room
       emitToHotel(hotelId, SOCKET_EVENTS.GUEST_CHECKED_IN, tvPayload);
       emitToHotel(hotelId, 'guest.checked_in', tvPayload);
-    }
+    }).catch(() => {});
 
-    // Notify all hotel dashboard users
-    emitToHotel(hotelId, SOCKET_EVENTS.GUEST_CHECKED_IN, {
-      bookingId: result.booking.id,
-      guestName: `${result.guest.firstName} ${result.guest.lastName}`,
-      roomNumber: room.roomNumber,
-      roomId: data.roomId,
-      checkInDate: data.checkInDate,
-      checkOutDate: data.checkOutDate,
-      tvOnline: device?.isOnline || false,
-      timestamp: new Date().toISOString(),
-    });
+    // Schedule checkout reminder
+    const reminderMinutes = env.CHECKOUT_REMINDER_MINUTES || 60;
+    scheduleCheckoutReminder(
+      booking.id,
+      hotelId,
+      data.checkOutDate,
+      reminderMinutes
+    ).catch(() => {});
 
     // Create notification
-    await prisma.notification.create({
+    prisma.notification.create({
       data: {
         hotelId,
         type: 'GUEST_CHECKED_IN',
         title: 'Guest checked in',
-        body: `${result.guest.firstName} ${result.guest.lastName} checked into Room ${room.roomNumber}`,
-        data: { bookingId: result.booking.id, roomId: data.roomId },
+        body: `${guest.firstName} ${guest.lastName} checked into Room ${room.roomNumber}`,
+        data: { bookingId: booking.id, roomId: data.roomId },
       },
-    });
-
-    // Schedule checkout reminder
-    const reminderMinutes = env.CHECKOUT_REMINDER_MINUTES || 60;
-    await scheduleCheckoutReminder(
-      result.booking.id,
-      hotelId,
-      data.checkOutDate,
-      reminderMinutes
-    );
+    }).catch(() => {});
 
     // Invalidate dashboard stats cache
     dashboardService.invalidateDashboardCache(hotelId);
 
-    return result.booking;
+    return {
+      ...booking,
+      guest,
+      room,
+    };
   }
 
   // ─── Check out ─────────────────────────────────────────
@@ -371,7 +351,8 @@ export class CheckinService {
           success: true,
         },
       });
-    });
+    }, { maxWait: 15000, timeout: 30000 });
+
 
     // ─── Emit real-time events ────────────────────────────
     if (booking.room.device) {
