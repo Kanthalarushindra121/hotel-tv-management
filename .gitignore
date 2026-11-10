@@ -7,6 +7,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+.gemini/antigravity/brain/*/.system_generated/
 
 # Environment files (secrets) - NEVER COMMIT THESE
 .env

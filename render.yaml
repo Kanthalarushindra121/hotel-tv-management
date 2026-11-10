@@ -39,3 +39,4 @@ services:
         value: 60
       - key: DEVICE_OFFLINE_THRESHOLD_MINUTES
         value: 5
+
