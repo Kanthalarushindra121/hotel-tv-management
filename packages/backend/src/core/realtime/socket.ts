@@ -99,7 +99,8 @@ export function setupSocketIO(io: Server) {
           select: { id: true, deviceId: true, hotelId: true, roomId: true, status: true },
         });
 
-        if (device && (device.status === 'PAIRED' || device.hotelId)) {
+        // Only authenticate as paired device if status is PAIRED and assigned to a room
+        if (device && device.status === 'PAIRED' && device.roomId) {
           socket.data.type = 'device';
           socket.data.deviceId = device.id;
           socket.data.hardwareId = device.deviceId;
@@ -114,6 +115,7 @@ export function setupSocketIO(io: Server) {
       // Unpaired TV connection (allows receiving DEVICE_PAIRED in real-time)
       socket.data.type = 'unpaired_device';
       socket.data.deviceId = deviceId;
+      socket.data.hardwareId = deviceId;
       return next();
     }
 
@@ -194,39 +196,42 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
     });
   }
 
-  // Push immediate fresh TV state and room occupancy to the TV on startup/connection
-  try {
-    const { devicesService } = await import('../../modules/devices/devices.service');
-    const deviceRecord = await prisma.tvDevice.findUnique({
-      where: { id: deviceId },
-      include: { room: true },
-    });
-    if (deviceRecord?.hotelId) {
-      const payload = await devicesService.getHotelTvPayload(
-        deviceRecord.hotelId,
-        deviceRecord.roomId || undefined
-      );
-      socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
-        ...payload,
-        device: deviceRecord,
+  // Push immediate fresh TV state and room occupancy to the TV on startup/connection ONLY if paired to a room
+  if (socket.data.type === 'device' && socket.data.deviceId) {
+    try {
+      const { devicesService } = await import('../../modules/devices/devices.service');
+      const deviceRecord = await prisma.tvDevice.findUnique({
+        where: { id: deviceId },
+        include: { room: true },
       });
+      if (deviceRecord && deviceRecord.status === 'PAIRED' && deviceRecord.roomId && deviceRecord.hotelId) {
+        const payload = await devicesService.getHotelTvPayload(
+          deviceRecord.hotelId,
+          deviceRecord.roomId
+        );
+        socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {
+          ...payload,
+          device: deviceRecord,
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed to emit initial TV payload on socket connection');
     }
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Failed to emit initial TV payload on socket connection');
   }
 
-  // Allow TV to request fresh state on demand
+  // Allow TV to request fresh state on demand (only if paired to a room)
   socket.on('device.request_sync', async (data?: { connectedSsid?: string }) => {
+    if (socket.data.type !== 'device') return;
     try {
       const { devicesService } = await import('../../modules/devices/devices.service');
       const dev = await prisma.tvDevice.findUnique({
         where: { id: deviceId },
         include: { room: true },
       });
-      if (dev?.hotelId) {
+      if (dev && dev.status === 'PAIRED' && dev.roomId && dev.hotelId) {
         const payload = await devicesService.getHotelTvPayload(
           dev.hotelId,
-          dev.roomId || undefined,
+          dev.roomId,
           data?.connectedSsid
         );
         socket.emit(SOCKET_EVENTS.CONTENT_UPDATED, {

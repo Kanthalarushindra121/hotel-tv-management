@@ -664,6 +664,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // Guard: Only transition out of pairing screen if device has been paired by hotel staff
+            val isPaired = prefs.getBoolean("is_paired", false)
+            if (!isPaired) {
+                Log.d(TAG, "Device is not yet paired with a room. Remaining on pairing screen.")
+                return
+            }
+
             // Occupancy (Guest Check-in state)
             val guest = data.optJSONObject("guest")
             if (guest != null && !guest.optString("name", "").isNullOrEmpty()) {
