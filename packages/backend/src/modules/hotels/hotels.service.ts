@@ -110,19 +110,56 @@ export class HotelsService {
       welcomeMessage?: string;
       defaultWelcomeMsg?: string;
       checkoutMessage?: string;
+      checkoutAdvanceHourlyMinutes?: number;
+      checkoutAdvanceFixedMinutes?: number;
+      checkoutAdvanceCustomMinutes?: number;
     },
     userId: string,
   ) {
+    const updateData: any = { ...data };
+    if (data.checkoutAdvanceHourlyMinutes !== undefined) {
+      updateData.checkoutAdvanceHourlyMinutes = Number(data.checkoutAdvanceHourlyMinutes) || 20;
+    }
+    if (data.checkoutAdvanceFixedMinutes !== undefined) {
+      updateData.checkoutAdvanceFixedMinutes = Number(data.checkoutAdvanceFixedMinutes) || 120;
+    }
+    if (data.checkoutAdvanceCustomMinutes !== undefined) {
+      updateData.checkoutAdvanceCustomMinutes = Number(data.checkoutAdvanceCustomMinutes) || 120;
+    }
+
     const updated = await prisma.hotelSettings.upsert({
       where: { hotelId },
       create: {
         hotelId,
-        ...data,
+        ...updateData,
       },
       update: {
-        ...data,
+        ...updateData,
       },
     });
+
+    // If advance display duration changed, reschedule active checkin reminders
+    if (
+      data.checkoutAdvanceHourlyMinutes !== undefined ||
+      data.checkoutAdvanceFixedMinutes !== undefined ||
+      data.checkoutAdvanceCustomMinutes !== undefined
+    ) {
+      try {
+        const { scheduleCheckoutReminder } = await import('../../core/jobs/reminder.queue');
+        const activeBookings = await prisma.booking.findMany({
+          where: { hotelId, status: 'CHECKED_IN', deletedAt: null },
+          select: { id: true, checkOutDate: true, stayType: true },
+        });
+        for (const b of activeBookings) {
+          let adv = updated.checkoutAdvanceFixedMinutes;
+          if (b.stayType === 'HOURLY') adv = updated.checkoutAdvanceHourlyMinutes;
+          else if (b.stayType === 'CUSTOM') adv = updated.checkoutAdvanceCustomMinutes;
+          scheduleCheckoutReminder(b.id, hotelId, b.checkOutDate, adv).catch(() => {});
+        }
+      } catch (err) {
+        console.warn('[HotelsService] Error rescheduling active checkout reminders:', err);
+      }
+    }
 
     await prisma.auditLog.create({
       data: {
@@ -519,15 +556,47 @@ export class HotelsService {
   }
 
   async updateScreensaverConfig(hotelId: string, data: any, userId: string) {
+    const sanitized: any = {};
+    if (typeof data.isEnabled === 'boolean') sanitized.isEnabled = data.isEnabled;
+    if (data.idleTimeout !== undefined) sanitized.idleTimeout = Number(data.idleTimeout) || 300;
+    if (typeof data.showClock === 'boolean') sanitized.showClock = data.showClock;
+    if (typeof data.showDate === 'boolean') sanitized.showDate = data.showDate;
+    if (typeof data.showRoomNumber === 'boolean') sanitized.showRoomNumber = data.showRoomNumber;
+    if (typeof data.showGuestName === 'boolean') sanitized.showGuestName = data.showGuestName;
+    if (typeof data.showHotelLogo === 'boolean') sanitized.showHotelLogo = data.showHotelLogo;
+    if (typeof data.showFacilities === 'boolean') sanitized.showFacilities = data.showFacilities;
+    if (typeof data.showWeather === 'boolean') sanitized.showWeather = data.showWeather;
+    if (data.guestWelcomeTitle !== undefined) sanitized.guestWelcomeTitle = String(data.guestWelcomeTitle);
+    if (data.guestWelcomeSubtitle !== undefined) sanitized.guestWelcomeSubtitle = String(data.guestWelcomeSubtitle);
+    if (data.guestPromoText !== undefined) sanitized.guestPromoText = String(data.guestPromoText);
+    if (data.defaultWelcomeTitle !== undefined) sanitized.defaultWelcomeTitle = String(data.defaultWelcomeTitle);
+    if (data.defaultWelcomeSubtitle !== undefined) sanitized.defaultWelcomeSubtitle = String(data.defaultWelcomeSubtitle);
+    if (data.defaultPromoText !== undefined) sanitized.defaultPromoText = String(data.defaultPromoText);
+
     const config = await prisma.screensaverConfig.upsert({
       where: { hotelId },
       update: {
-        ...data,
+        ...sanitized,
         updatedAt: new Date(),
       },
       create: {
         hotelId,
-        ...data,
+        isEnabled: true,
+        idleTimeout: 300,
+        showClock: true,
+        showDate: true,
+        showRoomNumber: true,
+        showGuestName: true,
+        showHotelLogo: true,
+        showFacilities: true,
+        showWeather: false,
+        guestWelcomeTitle: 'Welcome, {guestName}!',
+        guestWelcomeSubtitle: 'We hope you enjoy your comfortable stay with us.',
+        guestPromoText: 'Dial 9 for 24/7 Concierge and In-Room Dining.',
+        defaultWelcomeTitle: 'Welcome to {hotelName}',
+        defaultWelcomeSubtitle: 'Experience world-class luxury and personalized hospitality.',
+        defaultPromoText: 'High-speed Wi-Fi & 24/7 guest support available.',
+        ...sanitized,
       },
     });
 

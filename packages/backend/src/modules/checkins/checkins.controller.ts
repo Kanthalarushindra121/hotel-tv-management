@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { checkinService } from './checkins.service';
 import { getTenantHotelId } from '../../core/middleware/auth.middleware';
+import { prisma } from '../../config/database';
 
 export class CheckinsController {
   async checkIn(req: FastifyRequest, reply: FastifyReply) {
@@ -37,7 +38,24 @@ export class CheckinsController {
         checkOutDate = new Date(checkInDate.getTime() + hours * 60 * 60 * 1000);
       } else {
         const nights = Math.max(1, Number(body.nights) || 1);
-        checkOutDate = new Date(checkInDate.getTime() + nights * 24 * 60 * 60 * 1000);
+        const hotelSettings = await prisma.hotelSettings.findUnique({
+          where: { hotelId },
+          select: { checkOutTime: true },
+        });
+        const rawTime = (hotelSettings?.checkOutTime || '11:00').trim();
+        let targetHour = 11;
+        let targetMin = 0;
+        const match = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+        if (match) {
+          targetHour = parseInt(match[1], 10);
+          targetMin = parseInt(match[2], 10);
+          const period = match[3]?.toUpperCase();
+          if (period === 'PM' && targetHour < 12) targetHour += 12;
+          if (period === 'AM' && targetHour === 12) targetHour = 0;
+        }
+        checkOutDate = new Date(checkInDate.getTime());
+        checkOutDate.setDate(checkOutDate.getDate() + nights);
+        checkOutDate.setHours(targetHour, targetMin, 0, 0);
       }
     }
 
@@ -61,6 +79,8 @@ export class CheckinsController {
         internalNotes: body.internalNotes || undefined,
         source: body.source || 'MANUAL',
         forceCheckIn: Boolean(body.forceCheckIn),
+        stayType: body.stayType || body.checkoutPolicy,
+        checkoutPolicy: body.checkoutPolicy,
       },
       req.user.userId
     );

@@ -43,6 +43,7 @@ import {
   roomsApi,
   dashboardApi,
   checkinsApi,
+  hotelApi,
   RoomDTO,
   CheckInPayload,
   API_BASE_URL,
@@ -116,6 +117,40 @@ export default function DashboardPage() {
     },
     placeholderData: (prev) => prev,
   });
+
+  // Hotel Profile Query for dynamic standard checkout time
+  const { data: hotelProfile } = useQuery({
+    queryKey: ["hotel-profile"],
+    queryFn: async () => {
+      try {
+        return await hotelApi.getProfile();
+      } catch {
+        return null;
+      }
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const hotelStoreState = useHotelStore();
+  const fixedCheckoutInfo = useMemo(() => {
+    const raw = (hotelProfile?.settings?.checkOutTime || hotelStoreState.checkoutTime || "11:00").trim();
+    let hours = 11;
+    let minutes = 0;
+    const match = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (match) {
+      hours = parseInt(match[1], 10);
+      minutes = parseInt(match[2], 10);
+      const period = match[3]?.toUpperCase();
+      if (period === "PM" && hours < 12) hours += 12;
+      if (period === "AM" && hours === 12) hours = 0;
+    }
+    const displayPeriod = hours >= 12 ? "PM" : "AM";
+    const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+    const displayMin = minutes > 0 ? `:${minutes < 10 ? "0" : ""}${minutes}` : "";
+    const label = `Fixed ${displayHour}${displayMin} ${displayPeriod}`;
+    const formattedTime = `${displayHour}:${minutes < 10 ? "0" : ""}${minutes} ${displayPeriod}`;
+    return { hours, minutes, label, formattedTime };
+  }, [hotelProfile?.settings?.checkOutTime, hotelStoreState.checkoutTime]);
 
   // 2. Rooms Query
   const {
@@ -843,6 +878,7 @@ export default function DashboardPage() {
                     email: checkInForm.email,
                     roomId: checkInForm.roomId,
                     checkoutPolicy: "HOURLY",
+                    stayType: "HOURLY",
                     nights: 1,
                     hours: hours,
                     checkOut: calculatedOut,
@@ -865,22 +901,24 @@ export default function DashboardPage() {
                     email: checkInForm.email,
                     roomId: checkInForm.roomId,
                     checkoutPolicy: "CUSTOM",
+                    stayType: "CUSTOM",
                     nights: Math.max(1, Math.round((customDate.getTime() - Date.now()) / (24 * 3600 * 1000))),
                     checkOut: customDate.toISOString(),
                     specialRequests: checkInForm.specialRequests,
                     forceCheckIn: true,
                   });
                 } else {
-                  // FIXED_11AM
+                  // FIXED STAY (Respects hotel standard checkout time)
                   const targetCheckout = new Date();
                   targetCheckout.setDate(targetCheckout.getDate() + (checkInForm.nights || 1));
-                  targetCheckout.setHours(11, 0, 0, 0);
+                  targetCheckout.setHours(fixedCheckoutInfo.hours, fixedCheckoutInfo.minutes, 0, 0);
                   checkInMutation.mutate({
                     guestName: checkInForm.guestName,
                     phone: checkInForm.phone,
                     email: checkInForm.email,
                     roomId: checkInForm.roomId,
-                    checkoutPolicy: "FIXED_11AM",
+                    checkoutPolicy: "FIXED",
+                    stayType: "FIXED",
                     nights: checkInForm.nights || 1,
                     checkOut: targetCheckout.toISOString(),
                     specialRequests: checkInForm.specialRequests,
@@ -980,7 +1018,7 @@ export default function DashboardPage() {
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: "FIXED_11AM", label: "Fixed 11 AM" },
+                    { id: "FIXED_11AM", label: fixedCheckoutInfo.label },
                     { id: "HOURLY", label: "Hourly Stay" },
                     { id: "CUSTOM", label: "Custom Time" },
                   ].map((pol) => (
@@ -1029,7 +1067,7 @@ export default function DashboardPage() {
                       {(() => {
                         const d = new Date();
                         d.setDate(d.getDate() + (checkInForm.nights || 1));
-                        return `${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at 11:00 AM`;
+                        return `${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${fixedCheckoutInfo.formattedTime}`;
                       })()}
                     </span>
                   </div>

@@ -31,6 +31,8 @@ export class CheckinService {
     internalNotes?: string;
     source?: 'MANUAL' | 'PMS' | 'API';
     forceCheckIn?: boolean;
+    stayType?: string;
+    checkoutPolicy?: string;
   }, performedById: string) {
     // Validate room belongs to hotel
     let room = await prisma.room.findFirst({
@@ -153,6 +155,17 @@ export class CheckinService {
       throw new AppError('Guest information required', 400);
     }
 
+    // Determine stay type category (HOURLY, FIXED, CUSTOM)
+    let stayType = 'FIXED';
+    const policyRaw = (data.stayType || data.checkoutPolicy || '').toUpperCase();
+    if (policyRaw.includes('HOURLY')) {
+      stayType = 'HOURLY';
+    } else if (policyRaw.includes('CUSTOM')) {
+      stayType = 'CUSTOM';
+    } else {
+      stayType = 'FIXED';
+    }
+
     // Atomic transaction for state transition with extended timeout for cloud database
     const booking = await prisma.$transaction(async (tx) => {
       // Create booking
@@ -164,6 +177,7 @@ export class CheckinService {
           checkInDate: data.checkInDate,
           checkOutDate: data.checkOutDate,
           nights,
+          stayType,
           guestCount: data.guestCount || 1,
           source: data.source || 'MANUAL',
           status: 'CHECKED_IN',
@@ -237,7 +251,9 @@ export class CheckinService {
           roomNumber: room.roomNumber,
           checkInDate: data.checkInDate,
           checkOutDate: data.checkOutDate,
+          checkOutTimestamp: new Date(data.checkOutDate).getTime(),
           nights,
+          stayType,
           guestCount: data.guestCount || 1,
           checkOutTime: hotelTvPayload?.settings?.checkOutTime || '11:00 AM',
         },
@@ -258,14 +274,35 @@ export class CheckinService {
       emitToHotel(hotelId, 'guest.checked_in', tvPayload);
     }).catch(() => {});
 
-    // Schedule checkout reminder
-    const reminderMinutes = env.CHECKOUT_REMINDER_MINUTES || 60;
-    scheduleCheckoutReminder(
-      booking.id,
-      hotelId,
-      data.checkOutDate,
-      reminderMinutes
-    ).catch(() => {});
+    // Schedule checkout reminder according to stay category and hotel settings
+    (async () => {
+      try {
+        const hotelSettings = await prisma.hotelSettings.findUnique({
+          where: { hotelId },
+          select: {
+            checkoutAdvanceHourlyMinutes: true,
+            checkoutAdvanceFixedMinutes: true,
+            checkoutAdvanceCustomMinutes: true,
+          },
+        });
+        let reminderMinutes = 120;
+        if (stayType === 'HOURLY') {
+          reminderMinutes = hotelSettings?.checkoutAdvanceHourlyMinutes ?? 20;
+        } else if (stayType === 'CUSTOM') {
+          reminderMinutes = hotelSettings?.checkoutAdvanceCustomMinutes ?? 120;
+        } else {
+          reminderMinutes = hotelSettings?.checkoutAdvanceFixedMinutes ?? 120;
+        }
+        await scheduleCheckoutReminder(
+          booking.id,
+          hotelId,
+          data.checkOutDate,
+          reminderMinutes
+        );
+      } catch (err) {
+        console.warn('[CheckinService] Error scheduling checkout reminder:', err);
+      }
+    })();
 
     // Create notification
     prisma.notification.create({

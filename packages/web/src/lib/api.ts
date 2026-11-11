@@ -325,7 +325,8 @@ export interface CheckInPayload {
   email?: string;
   roomId: string;
   roomNumber?: string;
-  checkoutPolicy?: "FIXED_11AM" | "HOURLY" | "HOURLY_3H" | "HOURLY_6H" | "HOURLY_9H" | "HOURLY_12H" | "CUSTOM" | string;
+  checkoutPolicy?: "FIXED_11AM" | "FIXED" | "HOURLY" | "HOURLY_3H" | "HOURLY_6H" | "HOURLY_9H" | "HOURLY_12H" | "CUSTOM" | string;
+  stayType?: "FIXED" | "HOURLY" | "CUSTOM" | string;
   nights?: number;
   hours?: number;
   checkOut?: string;

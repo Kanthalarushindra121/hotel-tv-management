@@ -654,10 +654,14 @@ export class DevicesService {
         if (booking && booking.status === 'CHECKED_IN') {
           activeGuest = {
             id: booking.guest.id,
+            bookingId: booking.id,
             name: `${booking.guest.firstName} ${booking.guest.lastName}`.trim(),
             firstName: booking.guest.firstName,
             checkIn: booking.checkInDate,
             checkOut: booking.checkOutDate,
+            checkOutTimestamp: new Date(booking.checkOutDate).getTime(),
+            checkInTimestamp: new Date(booking.checkInDate).getTime(),
+            stayType: booking.stayType || 'FIXED',
             checkoutTime: hotel.settings?.checkOutTime || '11:00 AM',
           };
         }
@@ -864,7 +868,23 @@ export class DevicesService {
       checkoutSteps: hotel.checkoutSteps.map((s) => s.instruction),
       photos: hotel.photos,
       announcements: hotel.announcements,
-      screensaver: hotel.screensaverConfig,
+      screensaver: hotel.screensaverConfig || {
+        isEnabled: true,
+        idleTimeout: 300,
+        showClock: true,
+        showDate: true,
+        showRoomNumber: true,
+        showGuestName: true,
+        showHotelLogo: true,
+        showFacilities: true,
+        showWeather: false,
+        guestWelcomeTitle: 'Welcome, {guestName}!',
+        guestWelcomeSubtitle: 'We hope you enjoy your comfortable stay with us.',
+        guestPromoText: 'Dial 9 for 24/7 Concierge and In-Room Dining.',
+        defaultWelcomeTitle: 'Welcome to {hotelName}',
+        defaultWelcomeSubtitle: 'Experience world-class luxury and personalized hospitality.',
+        defaultPromoText: 'High-speed Wi-Fi & 24/7 guest support available.',
+      },
       syncedAt: new Date().toISOString(),
     };
   }

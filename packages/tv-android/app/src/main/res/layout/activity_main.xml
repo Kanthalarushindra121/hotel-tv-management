@@ -212,6 +212,7 @@
                     android:orientation="horizontal">
 
                     <LinearLayout
+                        android:id="@+id/layout_badge_room_hotel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_card_rounded"
@@ -315,6 +316,7 @@
                     android:orientation="horizontal">
 
                     <LinearLayout
+                        android:id="@+id/layout_badge_room_guest"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_card_rounded"
@@ -561,6 +563,7 @@
 
                 <!-- Card 3: Hotel Amenities -->
                 <LinearLayout
+                    android:id="@+id/card_hotel_amenities"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_marginStart="12dp"
@@ -759,6 +762,7 @@
 
                 <!-- Card 3: Hotel Amenities / Guest Services -->
                 <LinearLayout
+                    android:id="@+id/card_guest_amenities"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_marginStart="12dp"

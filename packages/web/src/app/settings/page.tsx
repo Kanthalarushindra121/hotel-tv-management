@@ -84,6 +84,11 @@ export default function SettingsPage() {
     welcomeMessage: "Welcome to your sanctuary of comfort. Your stay is our passion.",
     checkoutMessage: "We hope you enjoyed your stay. Contact reception (dial 9) for express check-out or luggage assistance.",
     screensaverDelaySeconds: 120,
+
+    // 5. Checkout Screen Automation Advance Timing (in minutes)
+    checkoutAdvanceHourlyMinutes: 20,
+    checkoutAdvanceFixedMinutes: 120,
+    checkoutAdvanceCustomMinutes: 120,
   });
 
   // Local Wi-Fi editable form state
@@ -180,7 +185,13 @@ export default function SettingsPage() {
     | "quiet_hours"
     | "wifi"
     | "amenities"
-    | "departure_reminders";
+    | "departure_reminders"
+    | "screensaver_guest_title"
+    | "screensaver_guest_subtitle"
+    | "screensaver_guest_promo"
+    | "screensaver_default_title"
+    | "screensaver_default_subtitle"
+    | "screensaver_default_promo";
 
   const [activeSimModal, setActiveSimModal] = useState<SimFieldType | null>(null);
   const [isSavingSimField, setIsSavingSimField] = useState(false);
@@ -195,6 +206,14 @@ export default function SettingsPage() {
   const [simDraftWifiSsid, setSimDraftWifiSsid] = useState("");
   const [simDraftWifiPass, setSimDraftWifiPass] = useState("");
   const [simDraftWifiSec, setSimDraftWifiSec] = useState<"WPA2" | "WPA3" | "WPA" | "nopass">("WPA2");
+
+  // Screensaver in-place drafts
+  const [simDraftGuestWelcomeTitle, setSimDraftGuestWelcomeTitle] = useState("");
+  const [simDraftGuestWelcomeSubtitle, setSimDraftGuestWelcomeSubtitle] = useState("");
+  const [simDraftGuestPromoText, setSimDraftGuestPromoText] = useState("");
+  const [simDraftDefaultWelcomeTitle, setSimDraftDefaultWelcomeTitle] = useState("");
+  const [simDraftDefaultWelcomeSubtitle, setSimDraftDefaultWelcomeSubtitle] = useState("");
+  const [simDraftDefaultPromoText, setSimDraftDefaultPromoText] = useState("");
 
   // Amenities CRUD inside simulation
   const [simNewAmenityName, setSimNewAmenityName] = useState("");
@@ -224,6 +243,18 @@ export default function SettingsPage() {
       setSimDraftWifiSsid(wifiForm.networkName || hotelStore.wifiNetwork || "");
       setSimDraftWifiPass(wifiForm.password || hotelStore.wifiPassword || "");
       setSimDraftWifiSec(wifiForm.securityType || hotelStore.wifiSecurity || "WPA2");
+    } else if (field === "screensaver_guest_title") {
+      setSimDraftGuestWelcomeTitle(screensaverForm.guestWelcomeTitle);
+    } else if (field === "screensaver_guest_subtitle") {
+      setSimDraftGuestWelcomeSubtitle(screensaverForm.guestWelcomeSubtitle);
+    } else if (field === "screensaver_guest_promo") {
+      setSimDraftGuestPromoText(screensaverForm.guestPromoText);
+    } else if (field === "screensaver_default_title") {
+      setSimDraftDefaultWelcomeTitle(screensaverForm.defaultWelcomeTitle);
+    } else if (field === "screensaver_default_subtitle") {
+      setSimDraftDefaultWelcomeSubtitle(screensaverForm.defaultWelcomeSubtitle);
+    } else if (field === "screensaver_default_promo") {
+      setSimDraftDefaultPromoText(screensaverForm.defaultPromoText);
     }
     setActiveSimModal(field);
   };
@@ -299,6 +330,42 @@ export default function SettingsPage() {
         await hotelApi.updateHouseRules(form.houseRules);
         queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
         toast.success("Departure reminders updated and synced to TVs!");
+      } else if (field === "screensaver_guest_title") {
+        const val = simDraftGuestWelcomeTitle.trim() || "Welcome, {guestName}!";
+        const updated = { ...screensaverForm, guestWelcomeTitle: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Welcome Title template updated & synced to TVs!");
+      } else if (field === "screensaver_guest_subtitle") {
+        const val = simDraftGuestWelcomeSubtitle.trim();
+        const updated = { ...screensaverForm, guestWelcomeSubtitle: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Guest Subtitle updated & synced to TVs!");
+      } else if (field === "screensaver_guest_promo") {
+        const val = simDraftGuestPromoText.trim();
+        const updated = { ...screensaverForm, guestPromoText: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Promo Banner updated & synced to TVs!");
+      } else if (field === "screensaver_default_title") {
+        const val = simDraftDefaultWelcomeTitle.trim() || "Welcome to {hotelName}";
+        const updated = { ...screensaverForm, defaultWelcomeTitle: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Hotel Welcome Title updated & synced to TVs!");
+      } else if (field === "screensaver_default_subtitle") {
+        const val = simDraftDefaultWelcomeSubtitle.trim();
+        const updated = { ...screensaverForm, defaultWelcomeSubtitle: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Hotel Subtitle updated & synced to TVs!");
+      } else if (field === "screensaver_default_promo") {
+        const val = simDraftDefaultPromoText.trim();
+        const updated = { ...screensaverForm, defaultPromoText: val };
+        setScreensaverForm(updated);
+        await updateScreensaverMutation.mutateAsync(updated);
+        toast.success("Services / Wi-Fi Note updated & synced to TVs!");
       }
       setActiveSimModal(null);
     } catch (err: any) {
@@ -409,6 +476,9 @@ export default function SettingsPage() {
         quietHoursEnd: serverProfile.settings?.quietHoursEnd || prev.quietHoursEnd,
         welcomeMessage: serverProfile.settings?.welcomeMessage || prev.welcomeMessage,
         checkoutMessage: serverProfile.settings?.checkoutMessage || prev.checkoutMessage,
+        checkoutAdvanceHourlyMinutes: serverProfile.settings?.checkoutAdvanceHourlyMinutes ?? prev.checkoutAdvanceHourlyMinutes ?? 20,
+        checkoutAdvanceFixedMinutes: serverProfile.settings?.checkoutAdvanceFixedMinutes ?? prev.checkoutAdvanceFixedMinutes ?? 120,
+        checkoutAdvanceCustomMinutes: serverProfile.settings?.checkoutAdvanceCustomMinutes ?? prev.checkoutAdvanceCustomMinutes ?? 120,
       }));
 
       if (serverProfile.wifiSettings) {
@@ -473,6 +543,9 @@ export default function SettingsPage() {
         welcomeMessage: form.welcomeMessage,
         checkoutMessage: form.checkoutMessage,
         screensaverDelay: form.screensaverDelaySeconds,
+        checkoutAdvanceHourlyMinutes: form.checkoutAdvanceHourlyMinutes,
+        checkoutAdvanceFixedMinutes: form.checkoutAdvanceFixedMinutes,
+        checkoutAdvanceCustomMinutes: form.checkoutAdvanceCustomMinutes,
       });
 
       // 3. Update Wi-Fi settings in backend
@@ -1310,21 +1383,158 @@ export default function SettingsPage() {
                   className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
+            </div>
 
-              <div className="sm:col-span-2 pt-4 flex items-center justify-between border-t border-slate-100">
-                <span className="text-xs text-slate-500">
-                  Timings are pushed dynamically to connected TV displays and check-in workflows.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{saveMutation.isPending ? "Saving..." : "Save Time & Schedule"}</span>
-                </button>
+            {/* Automatic Checkout Screen Advance Display Timing */}
+            <div className="pt-5 border-t border-slate-100 space-y-4">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  Automatic Checkout Screen Advance Display Timing
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Specify how long before scheduled checkout the guest TV automatically switches to the checkout screen for each stay category.
+                </p>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* 1. Hourly Stay */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Hourly Stay</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">Default: 20 minutes before checkout</span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Hours</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={Math.floor((form.checkoutAdvanceHourlyMinutes ?? 20) / 60)}
+                        onChange={(e) => {
+                          const h = Math.max(0, parseInt(e.target.value) || 0);
+                          const m = (form.checkoutAdvanceHourlyMinutes ?? 20) % 60;
+                          setForm({ ...form, checkoutAdvanceHourlyMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                    <span className="text-slate-400 font-bold self-end mb-2">:</span>
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Minutes</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={(form.checkoutAdvanceHourlyMinutes ?? 20) % 60}
+                        onChange={(e) => {
+                          const m = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                          const h = Math.floor((form.checkoutAdvanceHourlyMinutes ?? 20) / 60);
+                          setForm({ ...form, checkoutAdvanceHourlyMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Fixed Stay */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Fixed Stay (1 Night, etc.)</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">Default: 2 hours before checkout</span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Hours</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={Math.floor((form.checkoutAdvanceFixedMinutes ?? 120) / 60)}
+                        onChange={(e) => {
+                          const h = Math.max(0, parseInt(e.target.value) || 0);
+                          const m = (form.checkoutAdvanceFixedMinutes ?? 120) % 60;
+                          setForm({ ...form, checkoutAdvanceFixedMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                    <span className="text-slate-400 font-bold self-end mb-2">:</span>
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Minutes</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={(form.checkoutAdvanceFixedMinutes ?? 120) % 60}
+                        onChange={(e) => {
+                          const m = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                          const h = Math.floor((form.checkoutAdvanceFixedMinutes ?? 120) / 60);
+                          setForm({ ...form, checkoutAdvanceFixedMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Custom Checkout Time */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Custom Checkout Time</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">Default: 2 hours before checkout</span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Hours</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="23"
+                        value={Math.floor((form.checkoutAdvanceCustomMinutes ?? 120) / 60)}
+                        onChange={(e) => {
+                          const h = Math.max(0, parseInt(e.target.value) || 0);
+                          const m = (form.checkoutAdvanceCustomMinutes ?? 120) % 60;
+                          setForm({ ...form, checkoutAdvanceCustomMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                    <span className="text-slate-400 font-bold self-end mb-2">:</span>
+                    <div className="flex-1">
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 block mb-1">Minutes</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={(form.checkoutAdvanceCustomMinutes ?? 120) % 60}
+                        onChange={(e) => {
+                          const m = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                          const h = Math.floor((form.checkoutAdvanceCustomMinutes ?? 120) / 60);
+                          setForm({ ...form, checkoutAdvanceCustomMinutes: h * 60 + m });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs text-center font-mono rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 flex items-center justify-between border-t border-slate-100">
+              <span className="text-xs text-slate-500">
+                Timings and advance checkout alerts are pushed dynamically to connected TV displays.
+              </span>
+              <button
+                type="button"
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-60"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{saveMutation.isPending ? "Saving..." : "Save Time & Schedule"}</span>
+              </button>
             </div>
           </div>
         )}
@@ -1851,28 +2061,37 @@ export default function SettingsPage() {
                           {/* Header */}
                           <div className="relative z-10 flex items-center justify-between pb-2 border-b border-white/10">
                             <div>
-                              <span className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase block">
-                                WELCOME TO
-                              </span>
+                              {screensaverForm.showHotelLogo && (
+                                <div
+                                  onClick={() => openSimModal("hotel_name")}
+                                  className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
+                                  title="Click to edit Hotel Brand / Name"
+                                >
+                                  <span className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase flex items-center gap-1">
+                                    {simHotelName}
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </span>
+                                </div>
+                              )}
                               <div
-                                onClick={() => openSimModal("hotel_name")}
+                                onClick={() => openSimModal("screensaver_default_title")}
                                 className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
-                                title="Click to edit Hotel Name"
+                                title="Click to edit Hotel Welcome Title"
                               >
                                 <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 tracking-tight flex items-center gap-2">
-                                  {simHotelName}
+                                  {(screensaverForm.defaultWelcomeTitle || "Welcome to {hotelName}").replace("{hotelName}", simHotelName)}
                                   <span className="opacity-0 group-hover/edit:opacity-100 transition-opacity text-[10px] bg-sky-500/80 text-white px-1.5 py-0.5 rounded font-mono font-normal flex items-center gap-1">
-                                    <Edit2 className="w-2.5 h-2.5" /> Edit Name
+                                    <Edit2 className="w-2.5 h-2.5" /> Edit Title
                                   </span>
                                 </h1>
                               </div>
                               <div
-                                onClick={() => openSimModal("tagline")}
+                                onClick={() => openSimModal("screensaver_default_subtitle")}
                                 className="group/edit cursor-pointer p-1 -m-1 rounded-lg hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all block max-w-md mt-0.5"
-                                title="Click to edit Hotel Subtitle / Tagline"
+                                title="Click to edit Hotel Subtitle"
                               >
                                 <p className="text-[11px] text-slate-400 m-0 truncate flex items-center gap-1.5">
-                                  <span>{simHotelTagline}</span>
+                                  <span>{screensaverForm.defaultWelcomeSubtitle || simHotelTagline}</span>
                                   <span className="opacity-0 group-hover/edit:opacity-100 transition-opacity text-[9px] text-sky-400 font-mono flex items-center gap-0.5 shrink-0">
                                     <Edit2 className="w-2.5 h-2.5" /> Edit Subtitle
                                   </span>
@@ -1881,25 +2100,33 @@ export default function SettingsPage() {
                             </div>
 
                             <div className="flex items-center gap-3">
-                              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
-                                <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
-                                  SMART TV
-                                </span>
-                                <p className="text-base md:text-lg font-black text-white m-0">ROOM 101</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-base md:text-lg font-bold text-white m-0">
-                                  {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                                </p>
-                                <p className="text-[10px] text-slate-400 m-0">
-                                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                                </p>
-                              </div>
+                              {screensaverForm.showRoomNumber && (
+                                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
+                                  <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
+                                    SMART TV
+                                  </span>
+                                  <p className="text-base md:text-lg font-black text-white m-0">ROOM 101</p>
+                                </div>
+                              )}
+                              {(screensaverForm.showClock || screensaverForm.showDate) && (
+                                <div className="text-right">
+                                  {screensaverForm.showClock && (
+                                    <p className="text-base md:text-lg font-bold text-white m-0">
+                                      {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                    </p>
+                                  )}
+                                  {screensaverForm.showDate && (
+                                    <p className="text-[10px] text-slate-400 m-0">
+                                      {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
                           {/* 3 Main Information Cards Grid */}
-                          <div className="relative z-10 my-auto grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 items-stretch">
+                          <div className={`relative z-10 my-auto grid grid-cols-1 ${screensaverForm.showFacilities ? "md:grid-cols-3" : "md:grid-cols-2 max-w-2xl mx-auto w-full"} gap-3 md:gap-4 items-stretch`}>
                             {/* Card 1: Property Overview */}
                             <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
                               <div>
@@ -1952,43 +2179,53 @@ export default function SettingsPage() {
                             </div>
 
                             {/* Card 3: Hotel Amenities */}
-                            <div
-                              onClick={() => openSimModal("amenities")}
-                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
-                              title="Click to customize Amenities (Full CRUD)"
-                            >
-                              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
-                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
-                                  HOTEL AMENITIES
-                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
-                                </span>
-                                <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
-                                  Edit List
-                                </span>
-                              </div>
-                              <div className="space-y-1.5 my-2 overflow-hidden">
-                                {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
-                                  <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
-                                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-                                      <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
-                                        {renderAmenityIcon(amenity.icon)}
+                            {screensaverForm.showFacilities && (
+                              <div
+                                onClick={() => openSimModal("amenities")}
+                                className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                                title="Click to customize Amenities (Full CRUD)"
+                              >
+                                <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                                  <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
+                                    HOTEL AMENITIES
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </span>
+                                  <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
+                                    Edit List
+                                  </span>
+                                </div>
+                                <div className="space-y-1.5 my-2 overflow-hidden">
+                                  {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
+                                    <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
+                                      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                        <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
+                                          {renderAmenityIcon(amenity.icon)}
+                                        </div>
+                                        <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
+                                          {amenity.name}
+                                        </span>
                                       </div>
-                                      <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
-                                        {amenity.name}
-                                      </span>
+                                      {amenity.hours && (
+                                        <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
+                                          {amenity.hours}
+                                        </span>
+                                      )}
                                     </div>
-                                    {amenity.hours && (
-                                      <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
-                                        {amenity.hours}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openSimModal("screensaver_default_promo");
+                                  }}
+                                  className="group/edit pt-1.5 border-t border-white/10 text-[9px] text-slate-400 hover:text-white transition-colors flex items-center justify-between"
+                                  title="Click to edit Services / Wi-Fi Note Banner"
+                                >
+                                  <span className="truncate">{screensaverForm.defaultPromoText || "High-speed Wi-Fi & 24/7 guest support available."}</span>
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 shrink-0" />
+                                </div>
                               </div>
-                              <div className="pt-1.5 border-t border-white/10 text-[9px] text-slate-400">
-                                Room Service: Dial 9 on in-room phone.
-                              </div>
-                            </div>
+                            )}
                           </div>
 
                           {/* Bottom Bar */}
@@ -2014,41 +2251,74 @@ export default function SettingsPage() {
                           {/* Header */}
                           <div className="relative z-10 flex items-center justify-between pb-2 border-b border-white/10">
                             <div>
+                              {screensaverForm.showHotelLogo && (
+                                <div
+                                  onClick={() => openSimModal("hotel_name")}
+                                  className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
+                                  title="Click to edit Hotel Name"
+                                >
+                                  <p className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase m-0 flex items-center gap-1">
+                                    {simHotelName}
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </p>
+                                </div>
+                              )}
                               <div
-                                onClick={() => openSimModal("hotel_name")}
+                                onClick={() => openSimModal("screensaver_guest_title")}
                                 className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all inline-block"
-                                title="Click to edit Hotel Name"
+                                title="Click to edit Welcome Title Template"
                               >
-                                <p className="text-[10px] font-bold tracking-[0.15em] text-indigo-400 uppercase m-0 flex items-center gap-1">
-                                  {simHotelName}
-                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight flex items-center gap-2">
+                                  {screensaverForm.showGuestName
+                                    ? (screensaverForm.guestWelcomeTitle || "Welcome, {guestName}!").replace("{guestName}", simGuestName)
+                                    : (screensaverForm.guestWelcomeTitle || "Welcome, {guestName}!").replace("{guestName}", "").replace(/,\s*!$/, "!").trim()}
+                                  <span className="opacity-0 group-hover/edit:opacity-100 text-[9px] bg-sky-500/80 text-white px-1.5 py-0.5 rounded font-mono font-normal flex items-center gap-0.5">
+                                    <Edit2 className="w-2 h-2" /> Edit Title
+                                  </span>
+                                </h1>
+                              </div>
+                              <div
+                                onClick={() => openSimModal("screensaver_guest_subtitle")}
+                                className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all block max-w-md mt-0.5"
+                                title="Click to edit Guest Subtitle"
+                              >
+                                <p className="text-[11px] text-slate-300 m-0 truncate flex items-center gap-1.5">
+                                  <span>{screensaverForm.guestWelcomeSubtitle || "We hope you enjoy your comfortable stay with us."}</span>
+                                  <span className="opacity-0 group-hover/edit:opacity-100 text-[9px] text-sky-400 font-mono flex items-center gap-0.5 shrink-0">
+                                    <Edit2 className="w-2 h-2" /> Edit Subtitle
+                                  </span>
                                 </p>
                               </div>
-                              <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-0.5 tracking-tight">
-                                Welcome, {simGuestName}!
-                              </h1>
                             </div>
 
                             <div className="flex items-center gap-3">
-                              <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
-                                <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
-                                  YOUR ROOM
-                                </span>
-                                <p className="text-base md:text-lg font-black text-white m-0">101</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-base md:text-lg font-bold text-white m-0">
-                                  {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                                </p>
-                                <p className="text-[10px] text-slate-400 m-0">
-                                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                                </p>
-                              </div>
+                              {screensaverForm.showRoomNumber && (
+                                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur-md text-center">
+                                  <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-semibold">
+                                    YOUR ROOM
+                                  </span>
+                                  <p className="text-base md:text-lg font-black text-white m-0">101</p>
+                                </div>
+                              )}
+                              {(screensaverForm.showClock || screensaverForm.showDate) && (
+                                <div className="text-right">
+                                  {screensaverForm.showClock && (
+                                    <p className="text-base md:text-lg font-bold text-white m-0">
+                                      {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                    </p>
+                                  )}
+                                  {screensaverForm.showDate && (
+                                    <p className="text-[10px] text-slate-400 m-0">
+                                      {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
 
                           {/* 3 Main Information Cards Grid */}
-                          <div className="relative z-10 my-auto grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 items-stretch">
+                          <div className={`relative z-10 my-auto grid grid-cols-1 ${screensaverForm.showFacilities ? "md:grid-cols-3" : "md:grid-cols-2 max-w-2xl mx-auto w-full"} gap-3 md:gap-4 items-stretch`}>
                             {/* Card 1: Your Reservation */}
                             <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden">
                               <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
@@ -2110,43 +2380,53 @@ export default function SettingsPage() {
                             </div>
 
                             {/* Card 3: Hotel Amenities */}
-                            <div
-                              onClick={() => openSimModal("amenities")}
-                              className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
-                              title="Click to customize Amenities (Full CRUD)"
-                            >
-                              <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
-                                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
-                                  HOTEL AMENITIES
-                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
-                                </span>
-                                <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
-                                  Edit List
-                                </span>
-                              </div>
-                              <div className="space-y-1.5 my-2 overflow-hidden">
-                                {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
-                                  <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
-                                    <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-                                      <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
-                                        {renderAmenityIcon(amenity.icon)}
+                            {screensaverForm.showFacilities && (
+                              <div
+                                onClick={() => openSimModal("amenities")}
+                                className="group/edit rounded-xl border border-white/10 bg-white/5 p-3.5 backdrop-blur-md flex flex-col justify-between overflow-hidden cursor-pointer hover:bg-white/10 hover:ring-2 hover:ring-sky-400 hover:ring-dashed transition-all relative"
+                                title="Click to customize Amenities (Full CRUD)"
+                              >
+                                <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+                                  <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1">
+                                    HOTEL AMENITIES
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </span>
+                                  <span className="text-[9px] text-sky-400 font-semibold group-hover/edit:underline">
+                                    Edit List
+                                  </span>
+                                </div>
+                                <div className="space-y-1.5 my-2 overflow-hidden">
+                                  {activeAmenitiesList.slice(0, 4).map((amenity: any) => (
+                                    <div key={amenity.id} className="flex items-center justify-between gap-1.5 min-w-0">
+                                      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                        <div className="w-3.5 h-3.5 text-indigo-400 shrink-0">
+                                          {renderAmenityIcon(amenity.icon)}
+                                        </div>
+                                        <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
+                                          {amenity.name}
+                                        </span>
                                       </div>
-                                      <span className="text-[11px] font-medium text-slate-200 truncate" title={amenity.name}>
-                                        {amenity.name}
-                                      </span>
+                                      {amenity.hours && (
+                                        <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
+                                          {amenity.hours}
+                                        </span>
+                                      )}
                                     </div>
-                                    {amenity.hours && (
-                                      <span className="text-[9px] font-semibold text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30 shrink-0 whitespace-nowrap">
-                                        {amenity.hours}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
+                                <div
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openSimModal("screensaver_guest_promo");
+                                  }}
+                                  className="group/edit pt-1.5 border-t border-white/10 text-[9px] text-slate-400 hover:text-white transition-colors flex items-center justify-between"
+                                  title="Click to edit Concierge Promo Banner"
+                                >
+                                  <span className="truncate">{screensaverForm.guestPromoText || "Dial 9 for In-Room Dining & Concierge"}</span>
+                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 shrink-0" />
+                                </div>
                               </div>
-                              <div className="pt-1.5 border-t border-white/10 text-[9px] text-slate-400">
-                                Dial 9 for In-Room Dining &amp; Concierge
-                              </div>
-                            </div>
+                            )}
                           </div>
 
                           {/* Bottom Bar */}
@@ -2179,25 +2459,31 @@ export default function SettingsPage() {
                               <h1 className="text-xl md:text-2xl lg:text-3xl font-black text-white m-0 mt-1.5 tracking-tight">
                                 Thank You for Staying with Us!
                               </h1>
-                              <div
-                                onClick={() => openSimModal("tagline")}
-                                className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all inline-block mt-0.5"
-                                title="Click to edit Subtitle"
-                              >
-                                <p className="text-[11px] text-slate-300 m-0 flex items-center gap-1">
-                                  We hope you had a pleasant stay at {simHotelName}.
-                                  <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
-                                </p>
-                              </div>
+                              {screensaverForm.showHotelLogo && (
+                                <div
+                                  onClick={() => openSimModal("tagline")}
+                                  className="group/edit cursor-pointer p-0.5 rounded hover:bg-white/10 hover:ring-1 hover:ring-sky-400 transition-all inline-block mt-0.5"
+                                  title="Click to edit Subtitle"
+                                >
+                                  <p className="text-[11px] text-slate-300 m-0 flex items-center gap-1">
+                                    We hope you had a pleasant stay at {simHotelName}.
+                                    <Edit2 className="w-2.5 h-2.5 text-sky-400 opacity-0 group-hover/edit:opacity-100 transition-opacity" />
+                                  </p>
+                                </div>
+                              )}
                             </div>
 
                             <div className="text-right">
-                              <p className="text-base md:text-lg font-bold text-white m-0">
-                                {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                              </p>
-                              <p className="text-[10px] text-amber-400 font-semibold m-0">
-                                Room 101 • Departure
-                              </p>
+                              {screensaverForm.showClock && (
+                                <p className="text-base md:text-lg font-bold text-white m-0">
+                                  {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              )}
+                              {screensaverForm.showRoomNumber && (
+                                <p className="text-[10px] text-amber-400 font-semibold m-0">
+                                  Room 101 • Departure
+                                </p>
+                              )}
                             </div>
                           </div>
 
@@ -2290,6 +2576,12 @@ export default function SettingsPage() {
                       {activeSimModal === "wifi" && "Customize In-Room Wi-Fi & TV QR"}
                       {activeSimModal === "amenities" && "Manage Hotel Amenities (CRUD)"}
                       {activeSimModal === "departure_reminders" && "Customize Departure Reminders"}
+                      {activeSimModal === "screensaver_guest_title" && "Edit Welcome Title Template (Mode 1)"}
+                      {activeSimModal === "screensaver_guest_subtitle" && "Edit Guest Subtitle (Mode 1)"}
+                      {activeSimModal === "screensaver_guest_promo" && "Edit Facilities & Concierge Promo (Mode 1)"}
+                      {activeSimModal === "screensaver_default_title" && "Edit Hotel Welcome Title (Mode 2)"}
+                      {activeSimModal === "screensaver_default_subtitle" && "Edit Hotel Subtitle (Mode 2)"}
+                      {activeSimModal === "screensaver_default_promo" && "Edit Services / Wi-Fi Note (Mode 2)"}
                     </h3>
                     <p className="text-[11px] text-slate-500">
                       Changes persist immediately in database and synchronize with TV screens.
@@ -2640,6 +2932,108 @@ export default function SettingsPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* 9. Mode 1: Guest Welcome Title */}
+                {activeSimModal === "screensaver_guest_title" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Welcome Title Template *</label>
+                    <input
+                      type="text"
+                      value={simDraftGuestWelcomeTitle}
+                      onChange={(e) => setSimDraftGuestWelcomeTitle(e.target.value)}
+                      placeholder="e.g. Welcome, {guestName}!"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Use <span className="font-mono text-indigo-600 font-bold">&#123;guestName&#125;</span> for automatic personalized guest name replacement.
+                    </p>
+                  </div>
+                )}
+
+                {/* 10. Mode 1: Guest Subtitle */}
+                {activeSimModal === "screensaver_guest_subtitle" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Guest Subtitle</label>
+                    <textarea
+                      rows={3}
+                      value={simDraftGuestWelcomeSubtitle}
+                      onChange={(e) => setSimDraftGuestWelcomeSubtitle(e.target.value)}
+                      placeholder="e.g. We hope you enjoy your comfortable stay with us."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Warm greeting message displayed beneath the guest's name on occupied TV displays.
+                    </p>
+                  </div>
+                )}
+
+                {/* 11. Mode 1: Facilities & Concierge Promo Banner */}
+                {activeSimModal === "screensaver_guest_promo" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Facilities & Concierge Promo Banner</label>
+                    <input
+                      type="text"
+                      value={simDraftGuestPromoText}
+                      onChange={(e) => setSimDraftGuestPromoText(e.target.value)}
+                      placeholder="e.g. Dial 9 for 24/7 Concierge and In-Room Dining."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Quick call-to-action note displayed at the bottom of the amenities card.
+                    </p>
+                  </div>
+                )}
+
+                {/* 12. Mode 2: Hotel Welcome Title */}
+                {activeSimModal === "screensaver_default_title" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Hotel Welcome Title *</label>
+                    <input
+                      type="text"
+                      value={simDraftDefaultWelcomeTitle}
+                      onChange={(e) => setSimDraftDefaultWelcomeTitle(e.target.value)}
+                      placeholder="e.g. Welcome to {hotelName}"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Use <span className="font-mono text-indigo-600 font-bold">&#123;hotelName&#125;</span> for automatic hotel property name replacement.
+                    </p>
+                  </div>
+                )}
+
+                {/* 13. Mode 2: Hotel Subtitle */}
+                {activeSimModal === "screensaver_default_subtitle" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Hotel Subtitle</label>
+                    <textarea
+                      rows={3}
+                      value={simDraftDefaultWelcomeSubtitle}
+                      onChange={(e) => setSimDraftDefaultWelcomeSubtitle(e.target.value)}
+                      placeholder="e.g. Experience world-class luxury and personalized hospitality."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Brand tagline or hospitality message shown on vacant/unoccupied in-room screens.
+                    </p>
+                  </div>
+                )}
+
+                {/* 14. Mode 2: Services / Wi-Fi Note Banner */}
+                {activeSimModal === "screensaver_default_promo" && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-slate-700">Services / Wi-Fi Note Banner</label>
+                    <input
+                      type="text"
+                      value={simDraftDefaultPromoText}
+                      onChange={(e) => setSimDraftDefaultPromoText(e.target.value)}
+                      placeholder="e.g. High-speed Wi-Fi & 24/7 guest support available."
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Promotional banner displayed on unoccupied screens.
+                    </p>
                   </div>
                 )}
               </div>

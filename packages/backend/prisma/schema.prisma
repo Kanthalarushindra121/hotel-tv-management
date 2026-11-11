@@ -312,6 +312,11 @@ model HotelSettings {
   welcomeMessage      String  @default("Welcome")
   defaultWelcomeMsg   String  @default("Welcome to our hotel")
   checkoutMessage     String  @default("Thank you for staying with us")
+
+  // Checkout Screen Advance Display Timings (in minutes)
+  checkoutAdvanceHourlyMinutes  Int @default(20)   // Default: 20 minutes before checkout
+  checkoutAdvanceFixedMinutes   Int @default(120)  // Default: 2 hours (120 min) before checkout
+  checkoutAdvanceCustomMinutes  Int @default(120)  // Default: 2 hours (120 min) before checkout
   
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -620,6 +625,7 @@ model Booking {
   checkInDate     DateTime      // date only semantics
   checkOutDate    DateTime      // date only semantics
   nights          Int
+  stayType        String        @default("FIXED") // HOURLY, FIXED, CUSTOM
   
   guestCount      Int           @default(1)
   source          BookingSource @default(MANUAL)

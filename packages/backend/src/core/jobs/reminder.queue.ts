@@ -45,11 +45,16 @@ export async function scheduleCheckoutReminder(
   reminderMinutesBefore: number = 60
 ): Promise<string | undefined> {
   const reminderAt = new Date(checkoutAt.getTime() - reminderMinutesBefore * 60 * 1000);
-  const delay = reminderAt.getTime() - Date.now();
+  let delay = reminderAt.getTime() - Date.now();
 
   if (delay <= 0) {
-    logger.info(`Reminder for booking ${bookingId} is in the past — skipping`);
-    return;
+    if (checkoutAt.getTime() > Date.now()) {
+      // Advance trigger time is already reached (e.g. short stay or advance duration > stay length)
+      delay = 0;
+    } else {
+      logger.info(`Reminder for booking ${bookingId} has already expired past checkout — skipping`);
+      return;
+    }
   }
 
   let jobId: string | undefined = undefined;
@@ -131,22 +136,33 @@ export function setupReminderWorker() {
       }
 
       // Update TV screen state
-      if (booking.room.device?.isOnline) {
-        emitToDevice(booking.room.device.id, SOCKET_EVENTS.CHECKOUT_REMINDER, {
-          bookingId,
-          guestFirstName: booking.guest.firstName,
-          checkOutDate: booking.checkOutDate,
-          roomNumber: booking.room.roomNumber,
-        });
+      const reminderPayload = {
+        bookingId,
+        guestFirstName: booking.guest.firstName,
+        guestName: `${booking.guest.firstName} ${booking.guest.lastName}`,
+        checkOutDate: booking.checkOutDate,
+        roomNumber: booking.room.roomNumber,
+      };
+
+      const dev = booking.room.device || await prisma.tvDevice.findFirst({
+        where: { roomId: booking.roomId, deletedAt: null },
+      });
+
+      if (dev) {
+        emitToDevice(dev.id, SOCKET_EVENTS.CHECKOUT_REMINDER, reminderPayload);
+        emitToDevice(dev.id, 'checkout.reminder', reminderPayload);
+        emitToDevice(dev.id, 'CHECKOUT_REMINDER', reminderPayload);
+        if (dev.deviceId && dev.deviceId !== dev.id) {
+          emitToDevice(dev.deviceId, SOCKET_EVENTS.CHECKOUT_REMINDER, reminderPayload);
+          emitToDevice(dev.deviceId, 'checkout.reminder', reminderPayload);
+          emitToDevice(dev.deviceId, 'CHECKOUT_REMINDER', reminderPayload);
+        }
       }
 
       // Notify hotel dashboard
-      emitToHotel(hotelId, SOCKET_EVENTS.CHECKOUT_REMINDER, {
-        bookingId,
-        guestName: `${booking.guest.firstName} ${booking.guest.lastName}`,
-        roomNumber: booking.room.roomNumber,
-        checkOutDate: booking.checkOutDate,
-      });
+      emitToHotel(hotelId, SOCKET_EVENTS.CHECKOUT_REMINDER, reminderPayload);
+      emitToHotel(hotelId, 'checkout.reminder', reminderPayload);
+      emitToHotel(hotelId, 'CHECKOUT_REMINDER', reminderPayload);
 
       // Mark reminder as sent
       await prisma.checkoutReminder.updateMany({

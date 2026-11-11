@@ -132,6 +132,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRetryPairing: Button
     private lateinit var btnFloatingSettings: ImageButton
 
+    // Screensaver Dynamic Views
+    private var layoutBadgeRoomHotel: View? = null
+    private var layoutBadgeRoomGuest: View? = null
+    private var cardHotelAmenities: View? = null
+    private var cardGuestAmenities: View? = null
+
     // State & Preferences
     private lateinit var prefs: SharedPreferences
     private var currentState: TvScreenState = TvScreenState.STATE_HOTEL
@@ -254,6 +260,12 @@ class MainActivity : AppCompatActivity() {
         btnServerConfig = findViewById(R.id.btn_server_config)
         btnRetryPairing = findViewById(R.id.btn_retry_pairing)
         btnFloatingSettings = findViewById(R.id.btn_floating_settings)
+
+        // Dynamic Screensaver Elements
+        layoutBadgeRoomHotel = findViewById(R.id.layout_badge_room_hotel)
+        layoutBadgeRoomGuest = findViewById(R.id.layout_badge_room_guest)
+        cardHotelAmenities = findViewById(R.id.card_hotel_amenities)
+        cardGuestAmenities = findViewById(R.id.card_guest_amenities)
     }
 
     private fun setupListeners() {
@@ -363,6 +375,30 @@ class MainActivity : AppCompatActivity() {
         return BuildConfig.DEFAULT_BACKEND_URL.trim().removeSuffix("/")
     }
 
+    private fun applyScreensaverVisibility() {
+        val showClock = prefs.getBoolean("ss_show_clock", true)
+        val showDate = prefs.getBoolean("ss_show_date", true)
+        val showRoom = prefs.getBoolean("ss_show_room", true)
+        val showHotelLogo = prefs.getBoolean("ss_show_hotel_logo", true)
+        val showFacilities = prefs.getBoolean("ss_show_facilities", true)
+
+        tvClockHotel.visibility = if (showClock) View.VISIBLE else View.GONE
+        tvClockGuest.visibility = if (showClock) View.VISIBLE else View.GONE
+        tvClockCheckout.visibility = if (showClock) View.VISIBLE else View.GONE
+
+        tvDateHotel.visibility = if (showDate) View.VISIBLE else View.GONE
+        tvDateGuest.visibility = if (showDate) View.VISIBLE else View.GONE
+
+        layoutBadgeRoomHotel?.visibility = if (showRoom) View.VISIBLE else View.GONE
+        layoutBadgeRoomGuest?.visibility = if (showRoom) View.VISIBLE else View.GONE
+
+        tvHotelName.visibility = if (showHotelLogo) View.VISIBLE else View.INVISIBLE
+        tvGuestHotelMini.visibility = if (showHotelLogo) View.VISIBLE else View.GONE
+
+        cardHotelAmenities?.visibility = if (showFacilities) View.VISIBLE else View.INVISIBLE
+        cardGuestAmenities?.visibility = if (showFacilities) View.VISIBLE else View.INVISIBLE
+    }
+
     private fun updateClocks() {
         val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
         val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
@@ -375,6 +411,37 @@ class MainActivity : AppCompatActivity() {
         tvClockGuest.text = timeStr
         tvDateGuest.text = dateStr
         tvClockCheckout.text = timeStr
+
+        applyScreensaverVisibility()
+
+        // AUTOMATIC CHECKOUT DISPLAY LOGIC
+        try {
+            val isPaired = prefs.getBoolean("is_paired", false)
+            val guestName = prefs.getString("guest_name", null)
+            val checkoutTs = prefs.getLong("guest_checkout_ts", 0L)
+            val alreadyTriggered = prefs.getBoolean("checkout_screen_triggered", false)
+
+            if (isPaired && !guestName.isNullOrEmpty() && checkoutTs > 0L && !alreadyTriggered) {
+                val stayType = prefs.getString("stay_type", "FIXED") ?: "FIXED"
+                val advMinutes = when (stayType.uppercase(Locale.getDefault())) {
+                    "HOURLY" -> prefs.getInt("checkout_adv_hourly", 20)
+                    "CUSTOM" -> prefs.getInt("checkout_adv_custom", 120)
+                    else -> prefs.getInt("checkout_adv_fixed", 120)
+                }
+                val triggerAt = checkoutTs - (advMinutes * 60 * 1000L)
+                val nowTime = System.currentTimeMillis()
+                // Trigger when time arrives and not past 24 hours of checkout
+                if (nowTime >= triggerAt && nowTime < checkoutTs + (24 * 3600 * 1000L)) {
+                    prefs.edit().putBoolean("checkout_screen_triggered", true).apply()
+                    if (currentState != TvScreenState.STATE_CHECKOUT) {
+                        Log.d(TAG, "Automatic advance checkout screen triggered ($stayType, $advMinutes mins before)")
+                        showStateCheckout()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error evaluating automatic checkout trigger", e)
+        }
     }
 
     private fun loadSavedConfig() {
@@ -459,9 +526,15 @@ class MainActivity : AppCompatActivity() {
         headerGuest.visibility = View.GONE
         headerCheckout.visibility = View.GONE
 
+        val hotelName = prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad"
         val currentRoom = prefs.getString("room_number", "") ?: ""
         if (currentRoom.isNotEmpty()) {
             tvBadgeRoomHotel.text = "ROOM $currentRoom"
+        }
+
+        val defSubtitle = prefs.getString("default_welcome_subtitle", "") ?: ""
+        if (defSubtitle.isNotEmpty()) {
+            tvHotelTagline.text = defSubtitle
         }
 
         layoutStateHotel.visibility = View.VISIBLE
@@ -472,6 +545,8 @@ class MainActivity : AppCompatActivity() {
         footerCheckout.visibility = View.GONE
         tvFooterWakeHint.visibility = View.VISIBLE
         btnLaunchEntertainment.visibility = View.GONE
+
+        applyScreensaverVisibility()
     }
 
     /** STATE 2: WELCOME GUEST (Occupied) — Matches Image 2 */
@@ -484,8 +559,16 @@ class MainActivity : AppCompatActivity() {
         headerHotel.visibility = View.GONE
         headerCheckout.visibility = View.GONE
 
-        tvGuestWelcomeName.text = "Welcome, $guestName!"
-        tvResGuestName.text = guestName
+        val template = prefs.getString("guest_welcome_title", "Welcome, {guestName}!") ?: "Welcome, {guestName}!"
+        val showGuestName = prefs.getBoolean("ss_show_guest_name", true)
+        val welcomeTitle = if (showGuestName) {
+            template.replace("{guestName}", guestName)
+        } else {
+            template.replace(", {guestName}!", "!").replace(", {guestName}", "").replace("{guestName}", "").trim()
+        }
+
+        tvGuestWelcomeName.text = welcomeTitle
+        tvResGuestName.text = if (showGuestName) guestName else "Guest"
         tvResRoomNum.text = roomNumber
         tvBadgeRoomGuest.text = roomNumber
 
@@ -498,6 +581,8 @@ class MainActivity : AppCompatActivity() {
         btnLaunchEntertainment.visibility = View.VISIBLE
         tvFooterWakeHint.visibility = View.GONE
         btnLaunchEntertainment.requestFocus()
+
+        applyScreensaverVisibility()
     }
 
     /** STATE 3: CHECKOUT THANK YOU — Matches Image 3 */
@@ -522,6 +607,8 @@ class MainActivity : AppCompatActivity() {
         footerCheckout.visibility = View.VISIBLE
         footerNormal.visibility = View.GONE
         btnCheckoutReturn.requestFocus()
+
+        applyScreensaverVisibility()
     }
 
     private fun showPairingScreen(code: String) {
@@ -735,13 +822,52 @@ class MainActivity : AppCompatActivity() {
                 if (s3.isNotEmpty()) tvCheckoutStep3?.text = s3
             }
 
+            // Checkout Advance Duration Settings
+            if (settings != null) {
+                val advHourly = settings.optInt("checkoutAdvanceHourlyMinutes", 20)
+                val advFixed = settings.optInt("checkoutAdvanceFixedMinutes", 120)
+                val advCustom = settings.optInt("checkoutAdvanceCustomMinutes", 120)
+                prefs.edit().apply {
+                    putInt("checkout_adv_hourly", advHourly)
+                    putInt("checkout_adv_fixed", advFixed)
+                    putInt("checkout_adv_custom", advCustom)
+                }.apply()
+            }
+
             // Screensaver Appearance Config
             val screensaver = data.optJSONObject("screensaver")
             if (screensaver != null) {
-                val defSubtitle = screensaver.optString("defaultWelcomeSubtitle", "")
-                if (defSubtitle.isNotEmpty()) {
-                    tvHotelTagline.text = defSubtitle
-                    prefs.edit().putString("hotel_tagline", defSubtitle).apply()
+                val showClock = screensaver.optBoolean("showClock", true)
+                val showDate = screensaver.optBoolean("showDate", true)
+                val showRoom = screensaver.optBoolean("showRoomNumber", true)
+                val showGuestName = screensaver.optBoolean("showGuestName", true)
+                val showHotelLogo = screensaver.optBoolean("showHotelLogo", true)
+                val showFacilities = screensaver.optBoolean("showFacilities", true)
+                val gTitle = screensaver.optString("guestWelcomeTitle", "Welcome, {guestName}!")
+                val gSubtitle = screensaver.optString("guestWelcomeSubtitle", "We hope you enjoy your comfortable stay with us.")
+                val gPromo = screensaver.optString("guestPromoText", "Dial 9 for 24/7 Concierge and In-Room Dining.")
+                val dTitle = screensaver.optString("defaultWelcomeTitle", "Welcome to {hotelName}")
+                val dSubtitle = screensaver.optString("defaultWelcomeSubtitle", "Experience world-class luxury and personalized hospitality.")
+                val dPromo = screensaver.optString("defaultPromoText", "High-speed Wi-Fi & 24/7 guest support available.")
+
+                prefs.edit().apply {
+                    putBoolean("ss_show_clock", showClock)
+                    putBoolean("ss_show_date", showDate)
+                    putBoolean("ss_show_room", showRoom)
+                    putBoolean("ss_show_guest_name", showGuestName)
+                    putBoolean("ss_show_hotel_logo", showHotelLogo)
+                    putBoolean("ss_show_facilities", showFacilities)
+                    putString("guest_welcome_title", gTitle)
+                    putString("guest_welcome_subtitle", gSubtitle)
+                    putString("guest_promo_text", gPromo)
+                    putString("default_welcome_title", dTitle)
+                    putString("default_welcome_subtitle", dSubtitle)
+                    putString("default_promo_text", dPromo)
+                }.apply()
+
+                if (dSubtitle.isNotEmpty()) {
+                    tvHotelTagline.text = dSubtitle
+                    prefs.edit().putString("hotel_tagline", dSubtitle).apply()
                 }
             }
 
@@ -757,12 +883,25 @@ class MainActivity : AppCompatActivity() {
             if (guest != null && !guest.optString("name", "").isNullOrEmpty()) {
                 val guestName = guest.optString("name", "Guest")
                 val guestCheckout = guest.optString("checkoutTime", checkout)
-                prefs.edit().putString("guest_name", guestName).putString("checkout_time", guestCheckout).apply()
+                val bookingId = guest.optString("bookingId", "")
+                val stayType = guest.optString("stayType", "FIXED")
+                val checkOutTs = guest.optLong("checkOutTimestamp", 0L)
+                val lastBookingId = prefs.getString("guest_booking_id", "")
+                if (bookingId.isNotEmpty() && bookingId != lastBookingId) {
+                    prefs.edit().putBoolean("checkout_screen_triggered", false).putString("guest_booking_id", bookingId).apply()
+                }
+                prefs.edit().apply {
+                    putString("guest_name", guestName)
+                    putString("checkout_time", guestCheckout)
+                    putString("stay_type", stayType)
+                    if (checkOutTs > 0L) putLong("guest_checkout_ts", checkOutTs)
+                }.apply()
                 showStateGuest(guestName, roomNum)
             } else {
-                prefs.edit().remove("guest_name").apply()
+                prefs.edit().remove("guest_name").remove("guest_booking_id").remove("guest_checkout_ts").putBoolean("checkout_screen_triggered", false).apply()
                 showStateHotel()
             }
+            applyScreensaverVisibility()
         } catch (e: Exception) {
             Log.e(TAG, "Error applying server TV payload", e)
         }
@@ -874,11 +1013,19 @@ class MainActivity : AppCompatActivity() {
                             prefs.getString("room_number", "") ?: ""
                         }
                         val checkoutTime = data.optString("checkoutTime", "11:00")
+                        val bookingObj = data.optJSONObject("booking")
+                        val bookingId = bookingObj?.optString("id", "") ?: ""
+                        val stayType = bookingObj?.optString("stayType", "FIXED") ?: "FIXED"
+                        val checkOutTs = bookingObj?.optLong("checkOutTimestamp", 0L) ?: 0L
 
                         prefs.edit().apply {
                             putString("guest_name", guestName)
                             if (roomNum.isNotEmpty()) putString("room_number", roomNum)
                             putString("checkout_time", checkoutTime)
+                            putString("stay_type", stayType)
+                            if (checkOutTs > 0L) putLong("guest_checkout_ts", checkOutTs)
+                            if (bookingId.isNotEmpty()) putString("guest_booking_id", bookingId)
+                            putBoolean("checkout_screen_triggered", false)
                             putBoolean("is_paired", true)
                         }.apply()
 
@@ -892,6 +1039,28 @@ class MainActivity : AppCompatActivity() {
             }
             socket?.on("guest.checked_in") { onGuestCheckin(it) }
             socket?.on("GUEST_CHECKED_IN") { onGuestCheckin(it) }
+
+            // REAL-TIME CHECKOUT REMINDER
+            fun onCheckoutReminder(args: Array<Any>) {
+                val isPaired = prefs.getBoolean("is_paired", false)
+                if (!isPaired) return
+                if (args.isNotEmpty()) {
+                    val data = args[0] as? JSONObject
+                    val myRoom = prefs.getString("room_number", "")
+                    val targetRoom = data?.optString("roomNumber", "")
+                    if (!myRoom.isNullOrEmpty() && !targetRoom.isNullOrEmpty() && myRoom != targetRoom) {
+                        return
+                    }
+                }
+                prefs.edit().putBoolean("checkout_screen_triggered", true).apply()
+                runOnUiThread {
+                    showStateCheckout()
+                    Toast.makeText(this@MainActivity, "Checkout reminder received", Toast.LENGTH_LONG).show()
+                }
+            }
+            socket?.on("checkout.reminder") { onCheckoutReminder(it) }
+            socket?.on("CHECKOUT_REMINDER") { onCheckoutReminder(it) }
+            socket?.on("guest.checkout_reminder") { onCheckoutReminder(it) }
 
             // REAL-TIME GUEST CHECKOUT
             fun onGuestCheckout(args: Array<Any>) {
