@@ -447,21 +447,6 @@ class SmartStayDreamService : DreamService() {
 
         applyScreensaverVisibility()
     }
-        currentScreensaverState = TvScreenState.STATE_CHECKOUT
-        viewPairing?.visibility = View.GONE
-        viewMainContainer?.visibility = View.VISIBLE
-
-        headerCheckout?.visibility = View.VISIBLE
-        headerHotel?.visibility = View.GONE
-        headerGuest?.visibility = View.GONE
-
-        layoutStateCheckout?.visibility = View.VISIBLE
-        layoutStateHotel?.visibility = View.GONE
-        layoutStateGuest?.visibility = View.GONE
-
-        footerCheckout?.visibility = View.VISIBLE
-        footerNormal?.visibility = View.GONE
-    }
 
     /**
      * Connects directly to Socket.IO in the Daydream service
