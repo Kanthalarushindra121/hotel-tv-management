@@ -642,8 +642,11 @@ class MainActivity : AppCompatActivity() {
             val roomObj = data.optJSONObject("room")
             val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
                 data.optString("roomNumber")
+            } else if (roomObj != null) {
+                val r1 = roomObj.optString("roomNumber", "")
+                if (r1.isNotEmpty()) r1 else roomObj.optString("number", prefs.getString("room_number", "") ?: "")
             } else {
-                roomObj?.optString("roomNumber", roomObj.optString("number", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
+                prefs.getString("room_number", "") ?: ""
             }
 
             val settings = data.optJSONObject("settings")
@@ -652,16 +655,23 @@ class MainActivity : AppCompatActivity() {
                 data.optString("phone")
             } else if (data.has("conciergePhone") && !data.isNull("conciergePhone")) {
                 data.optString("conciergePhone")
+            } else if (settings != null) {
+                val p1 = settings.optString("phone", "")
+                if (p1.isNotEmpty()) p1 else settings.optString("receptionPhone", prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884")
             } else {
-                settings?.optString("phone", settings.optString("receptionPhone", prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"))
-                    ?: (prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884")
+                prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"
             }
             val qStart = settings?.optString("quietHoursStart", "22:00") ?: "22:00"
             val qEnd = settings?.optString("quietHoursEnd", "07:00") ?: "07:00"
             val quietHours = "$qStart – $qEnd"
 
             val wifi = data.optJSONObject("wifi")
-            val wifiSsid = wifi?.optString("networkName", wifi.optString("ssid", prefs.getString("wifi_ssid", "") ?: "")) ?: (prefs.getString("wifi_ssid", "") ?: "")
+            val wifiSsid = if (wifi != null) {
+                val s = wifi.optString("networkName", "")
+                if (s.isNotEmpty()) s else wifi.optString("ssid", prefs.getString("wifi_ssid", "") ?: "")
+            } else {
+                prefs.getString("wifi_ssid", "") ?: ""
+            }
             val wifiPass = wifi?.optString("password", prefs.getString("wifi_pass", "") ?: "") ?: (prefs.getString("wifi_pass", "") ?: "")
             val wifiStatus = wifi?.optString("status", prefs.getString("wifi_status", "MATCHED") ?: "MATCHED") ?: "MATCHED"
 
@@ -800,8 +810,11 @@ class MainActivity : AppCompatActivity() {
                         val roomObj = data.optJSONObject("room")
                         val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
                             data.optString("roomNumber")
+                        } else if (roomObj != null) {
+                            val r1 = roomObj.optString("roomNumber", "")
+                            if (r1.isNotEmpty()) r1 else roomObj.optString("number", "")
                         } else {
-                            roomObj?.optString("roomNumber", roomObj.optString("number", "")) ?: ""
+                            ""
                         }
                         prefs.edit().apply {
                             putBoolean("is_paired", true)
@@ -849,8 +862,11 @@ class MainActivity : AppCompatActivity() {
                         val guestObj = data.optJSONObject("guest")
                         val guestName = if (data.has("guestName")) {
                             data.optString("guestName", "Guest")
+                        } else if (guestObj != null) {
+                            val n1 = guestObj.optString("name", "")
+                            if (n1.isNotEmpty()) n1 else guestObj.optString("firstName", "Guest")
                         } else {
-                            guestObj?.optString("name", guestObj.optString("firstName", "Guest")) ?: "Guest"
+                            "Guest"
                         }
                         val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
                             data.optString("roomNumber")
@@ -912,7 +928,11 @@ class MainActivity : AppCompatActivity() {
                     val raw = args[0] as? JSONObject
                     if (raw != null) {
                         val data = if (raw.has("wifi")) raw.optJSONObject("wifi") ?: raw else raw
-                        val ssid = data.optString("networkName", data.optString("ssid", ""))
+                        val ssid = if (data.has("networkName") && data.optString("networkName").isNotEmpty()) {
+                            data.optString("networkName")
+                        } else {
+                            data.optString("ssid", "")
+                        }
                         val pass = data.optString("password", "")
                         val status = data.optString("status", "MATCHED")
                         prefs.edit().putString("wifi_ssid", ssid).putString("wifi_pass", pass).putString("wifi_status", status).apply()
@@ -996,8 +1016,15 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         when (cmd) {
                             "SEND_MESSAGE", "MESSAGE", "ALERT" -> {
-                                val msgText = payload?.optString("message", data?.optString("message", ""))
-                                    ?: (payload?.optString("text", "") ?: "")
+                                val msgText = if (payload != null && payload.has("message") && payload.optString("message").isNotEmpty()) {
+                                    payload.optString("message")
+                                } else if (payload != null && payload.has("text") && payload.optString("text").isNotEmpty()) {
+                                    payload.optString("text")
+                                } else if (data != null && data.has("message") && data.optString("message").isNotEmpty()) {
+                                    data.optString("message")
+                                } else {
+                                    ""
+                                }
                                 val msgTitle = payload?.optString("title", "Message from Front Desk") ?: "Message from Front Desk"
                                 if (msgText.isNotEmpty()) {
                                     showOnScreenAlert(msgTitle, msgText)
@@ -1008,11 +1035,16 @@ class MainActivity : AppCompatActivity() {
                                 socket?.emit("device.request_sync", JSONObject().apply {
                                     put("deviceId", hardwareId)
                                     if (connectedSsid != null) put("connectedSsid", connectedSsid)
-                                })
+                                    })
                                 Toast.makeText(this@MainActivity, "🔄 Display refreshed by Front Desk", Toast.LENGTH_SHORT).show()
                             }
                             "UPDATE_ROOM" -> {
-                                val newRoom = payload?.optString("roomNumber", payload?.optString("number", "")) ?: ""
+                                val newRoom = if (payload != null) {
+                                    val r1 = payload.optString("roomNumber", "")
+                                    if (r1.isNotEmpty()) r1 else payload.optString("number", "")
+                                } else {
+                                    ""
+                                }
                                 if (newRoom.isNotEmpty()) {
                                     prefs.edit().putString("room_number", newRoom).apply()
                                     tvBadgeRoomHotel.text = "ROOM $newRoom"
@@ -1117,7 +1149,7 @@ class MainActivity : AppCompatActivity() {
             handler.postDelayed({
                 try {
                     if (dialog.isShowing) dialog.dismiss()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {}
             }, 20000)
 
             Toast.makeText(this, "$title: $message", Toast.LENGTH_LONG).show()
