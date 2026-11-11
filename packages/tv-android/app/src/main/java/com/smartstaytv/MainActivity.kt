@@ -954,7 +954,7 @@ class MainActivity : AppCompatActivity() {
                     .apply()
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "Display unlinked. Please pair again.", Toast.LENGTH_LONG).show()
-                    requestNewPairingCode()
+                    requestPairingCodeFromBackend()
                 }
             }
             socket?.on("device.revoked") { onDeviceRevoked(it) }
