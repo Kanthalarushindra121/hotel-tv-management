@@ -274,7 +274,11 @@ export class DevicesService {
     const pairPayload = {
       deviceToken,
       hotel: updatedDevice.hotel,
-      room: updatedDevice.room,
+      roomNumber: updatedDevice.room?.roomNumber || '',
+      room: updatedDevice.room ? {
+        ...updatedDevice.room,
+        number: updatedDevice.room.roomNumber,
+      } : null,
     };
     emitToDevice(deviceDbId, SOCKET_EVENTS.DEVICE_PAIRED, pairPayload);
     emitToDevice(deviceDbId, 'DEVICE_PAIRED', pairPayload);
@@ -838,9 +842,11 @@ export class DevicesService {
       accentColor: hotel.accentColor,
       settings: hotel.settings,
       wifi: wifiPayload,
+      roomNumber: room?.roomNumber || '',
       room: room ? {
         id: room.id,
         number: room.roomNumber,
+        roomNumber: room.roomNumber,
         floor: room.floor,
         wifiZone: room.wifiZone ? {
           id: room.wifiZone.id,
@@ -965,9 +971,18 @@ export class DevicesService {
     // Push new room payload to newly assigned TV
     try {
       const payload = await this.getHotelTvPayload(hotelId, roomId);
-      emitToDevice(device.id, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+      const roomPayload = updated.room ? {
+        ...updated.room,
+        number: updated.room.roomNumber,
+      } : null;
+      const combinedPayload = {
+        ...payload,
+        roomNumber: updated.room?.roomNumber || '',
+        room: roomPayload,
+      };
+      emitToDevice(device.id, SOCKET_EVENTS.CONTENT_UPDATED, combinedPayload);
       if (device.deviceId && device.deviceId !== device.id) {
-        emitToDevice(device.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, { ...payload, room: updated.room });
+        emitToDevice(device.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, combinedPayload);
       }
     } catch {}
 

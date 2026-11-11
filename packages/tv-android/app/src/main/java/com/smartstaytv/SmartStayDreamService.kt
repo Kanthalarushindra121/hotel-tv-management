@@ -408,18 +408,23 @@ class SmartStayDreamService : DreamService() {
                         } else {
                             guestObj?.optString("name", guestObj.optString("firstName", "Guest")) ?: "Guest"
                         }
-                        val roomNum = data.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")
+                        val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
+                            data.optString("roomNumber")
+                        } else {
+                            prefs.getString("room_number", "") ?: ""
+                        }
                         val checkoutTime = data.optString("checkoutTime", "11:00")
 
-                        prefs.edit()
-                            .putString("guest_name", guestName)
-                            .putString("room_number", roomNum)
-                            .putString("checkout_time", checkoutTime)
-                            .apply()
+                        prefs.edit().apply {
+                            putString("guest_name", guestName)
+                            if (roomNum.isNotEmpty()) putString("room_number", roomNum)
+                            putString("checkout_time", checkoutTime)
+                        }.apply()
 
                         handler.post {
                             tvResCheckoutVal?.text = "By $checkoutTime"
-                            showStateGuest(guestName, roomNum)
+                            val displayRoom = if (roomNum.isNotEmpty()) roomNum else (prefs.getString("room_number", "--") ?: "--")
+                            showStateGuest(guestName, displayRoom)
                         }
                     }
                 }
@@ -498,7 +503,11 @@ class SmartStayDreamService : DreamService() {
                     ?: (prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
             }
             val roomObj = data.optJSONObject("room")
-            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
+            val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
+                data.optString("roomNumber")
+            } else {
+                roomObj?.optString("roomNumber", roomObj.optString("number", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
+            }
 
             val settings = data.optJSONObject("settings")
             val checkout = settings?.optString("checkOutTime", data.optString("checkoutTime", prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM")) ?: "11:00 AM"

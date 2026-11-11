@@ -640,7 +640,11 @@ class MainActivity : AppCompatActivity() {
                     ?: (prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
             }
             val roomObj = data.optJSONObject("room")
-            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
+            val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
+                data.optString("roomNumber")
+            } else {
+                roomObj?.optString("roomNumber", roomObj.optString("number", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
+            }
 
             val settings = data.optJSONObject("settings")
             val checkout = settings?.optString("checkOutTime", data.optString("checkoutTime", prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM")) ?: "11:00 AM"
@@ -794,7 +798,11 @@ class MainActivity : AppCompatActivity() {
                     if (data != null) {
                         val token = data.optString("deviceToken", "")
                         val roomObj = data.optJSONObject("room")
-                        val roomNum = roomObj?.optString("roomNumber", roomObj.optString("number", "")) ?: ""
+                        val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
+                            data.optString("roomNumber")
+                        } else {
+                            roomObj?.optString("roomNumber", roomObj.optString("number", "")) ?: ""
+                        }
                         prefs.edit().apply {
                             putBoolean("is_paired", true)
                             if (roomNum.isNotEmpty()) putString("room_number", roomNum)
@@ -844,18 +852,23 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             guestObj?.optString("name", guestObj.optString("firstName", "Guest")) ?: "Guest"
                         }
-                        val roomNum = data.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")
+                        val roomNum = if (data.has("roomNumber") && !data.isNull("roomNumber") && data.optString("roomNumber").isNotEmpty()) {
+                            data.optString("roomNumber")
+                        } else {
+                            prefs.getString("room_number", "") ?: ""
+                        }
                         val checkoutTime = data.optString("checkoutTime", "11:00")
 
-                        prefs.edit()
-                            .putString("guest_name", guestName)
-                            .putString("room_number", roomNum)
-                            .putString("checkout_time", checkoutTime)
-                            .putBoolean("is_paired", true)
-                            .apply()
+                        prefs.edit().apply {
+                            putString("guest_name", guestName)
+                            if (roomNum.isNotEmpty()) putString("room_number", roomNum)
+                            putString("checkout_time", checkoutTime)
+                            putBoolean("is_paired", true)
+                        }.apply()
 
                         runOnUiThread {
-                            showStateGuest(guestName, roomNum)
+                            val displayRoom = if (roomNum.isNotEmpty()) roomNum else (prefs.getString("room_number", "--") ?: "--")
+                            showStateGuest(guestName, displayRoom)
                             Toast.makeText(this@MainActivity, "Welcome, $guestName!", Toast.LENGTH_LONG).show()
                         }
                     }
@@ -910,8 +923,43 @@ class MainActivity : AppCompatActivity() {
             socket?.on("wifi.updated") { onWifiUpdated(it) }
             socket?.on("WIFI_UPDATED") { onWifiUpdated(it) }
 
+            // DEVICE REVOCATION / DELETION
+            fun onDeviceRevoked(args: Array<Any>) {
+                Log.d(TAG, "Device unlinked/deleted from hotel")
+                prefs.edit()
+                    .putBoolean("is_paired", false)
+                    .remove("device_token")
+                    .remove("room_number")
+                    .remove("guest_name")
+                    .apply()
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Display unlinked. Please pair again.", Toast.LENGTH_LONG).show()
+                    requestNewPairingCode()
+                }
+            }
+            socket?.on("device.revoked") { onDeviceRevoked(it) }
+            socket?.on("DEVICE_REVOKED") { onDeviceRevoked(it) }
+
             // CONTENT / CONFIG UPDATE
             fun onRefresh(args: Array<Any>) {
+                if (args.isNotEmpty()) {
+                    val data = args[0] as? JSONObject
+                    val action = data?.optString("action", "") ?: ""
+                    if (action == "DELETED") {
+                        onDeviceRevoked(args)
+                        return
+                    } else if (action == "UNASSIGNED") {
+                        prefs.edit().remove("room_number").remove("guest_name").apply()
+                        runOnUiThread {
+                            tvBadgeRoomHotel.text = "ROOM --"
+                            tvBadgeRoomGuest.text = "--"
+                            tvResRoomNum.text = "--"
+                            tvCheckoutRoomDeparture.text = "Room Departure"
+                            Toast.makeText(this@MainActivity, "Display unassigned from room", Toast.LENGTH_SHORT).show()
+                        }
+                        return
+                    }
+                }
                 val isPaired = prefs.getBoolean("is_paired", false)
                 if (!isPaired) {
                     Log.d(TAG, "Device is not yet paired; ignoring refresh")

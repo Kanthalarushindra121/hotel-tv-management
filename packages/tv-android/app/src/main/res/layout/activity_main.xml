@@ -338,7 +338,7 @@
                             android:id="@+id/tv_badge_room_guest"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="122"
+                            android:text="--"
                             android:textColor="@color/text_white"
                             android:textSize="18sp"
                             android:textStyle="bold" />
@@ -675,7 +675,7 @@
                             <TextView
                                 android:id="@+id/tv_res_room_num"
                                 android:gravity="end"
-                                android:text="122"
+                                android:text="--"
                                 android:textColor="@color/text_white"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
