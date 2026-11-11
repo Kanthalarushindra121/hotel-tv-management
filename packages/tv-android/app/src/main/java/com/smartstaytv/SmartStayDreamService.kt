@@ -280,7 +280,7 @@ class SmartStayDreamService : DreamService() {
         if (isValid) {
             tvHotelWifiLabel?.text = "Connect WiFi"
             tvGuestWifiLabel?.text = "Connect WiFi"
-            val qrString = if (pass.isEmpty()) "WIFI:S:$ssid;;" else "WIFI:S:$ssid;T:WPA;P:$pass;;"
+            val qrString = if (pass.isEmpty()) "WIFI:T:nopass;S:$ssid;;" else "WIFI:T:WPA;S:$ssid;P:$pass;;"
             try {
                 val encoder = BarcodeEncoder()
                 val bitmap: Bitmap = encoder.encodeBitmap(qrString, BarcodeFormat.QR_CODE, 450, 450)
@@ -445,8 +445,9 @@ class SmartStayDreamService : DreamService() {
             // WI-FI CREDENTIALS UPDATE
             val onWifiUpdated = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
-                    val data = args[0] as? JSONObject
-                    if (data != null) {
+                    val raw = args[0] as? JSONObject
+                    if (raw != null) {
+                        val data = if (raw.has("wifi")) raw.optJSONObject("wifi") ?: raw else raw
                         val ssid = data.optString("networkName", data.optString("ssid", ""))
                         val pass = data.optString("password", "")
                         val status = data.optString("status", "MATCHED")
@@ -462,14 +463,11 @@ class SmartStayDreamService : DreamService() {
             val onContentUpdated = { args: Array<Any> ->
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
-                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings"))) {
+                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings") || data.has("wifi") || data.has("amenities"))) {
                         handler.post { applyServerPayload(data) }
-                    } else {
-                        socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
                     }
-                } else {
-                    socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
                 }
+                socket?.emit("device.request_sync", JSONObject().apply { put("deviceId", hardwareId) })
             }
             socket?.on("content.updated") { onContentUpdated(it) }
             socket?.on("CONTENT_UPDATED") { onContentUpdated(it) }
@@ -486,28 +484,45 @@ class SmartStayDreamService : DreamService() {
     private fun applyServerPayload(data: JSONObject) {
         try {
             val hotelName = if (data.has("name") && !data.isNull("name")) {
-                data.optString("name", "risky resto")
+                data.optString("name", prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
             } else {
-                data.optJSONObject("hotel")?.optString("name", "risky resto") ?: "risky resto"
+                data.optJSONObject("hotel")?.optString("name", prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
+                    ?: (prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
+            }
+            val tagline = if (data.has("tagline") && !data.isNull("tagline")) {
+                data.optString("tagline")
+            } else if (data.has("description") && !data.isNull("description")) {
+                data.optString("description")
+            } else {
+                data.optJSONObject("hotel")?.optString("description", prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
+                    ?: (prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
             }
             val roomObj = data.optJSONObject("room")
-            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "122") ?: "122")) ?: "122"
+            val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
 
             val settings = data.optJSONObject("settings")
-            val checkout = settings?.optString("checkOutTime", "11:00") ?: "11:00"
-            val phone = settings?.optString("receptionPhone", "+91 85559 72884") ?: "+91 85559 72884"
+            val checkout = settings?.optString("checkOutTime", data.optString("checkoutTime", prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM")) ?: "11:00 AM"
+            val phone = if (data.has("phone") && !data.isNull("phone")) {
+                data.optString("phone")
+            } else if (data.has("conciergePhone") && !data.isNull("conciergePhone")) {
+                data.optString("conciergePhone")
+            } else {
+                settings?.optString("phone", settings.optString("receptionPhone", prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"))
+                    ?: (prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884")
+            }
             val qStart = settings?.optString("quietHoursStart", "22:00") ?: "22:00"
             val qEnd = settings?.optString("quietHoursEnd", "07:00") ?: "07:00"
             val quietHours = "$qStart – $qEnd"
 
             val wifi = data.optJSONObject("wifi")
-            val wifiSsid = wifi?.optString("networkName", "") ?: ""
-            val wifiPass = wifi?.optString("password", "") ?: ""
-            val wifiStatus = wifi?.optString("status", "MATCHED") ?: "MATCHED"
+            val wifiSsid = wifi?.optString("networkName", wifi.optString("ssid", prefs.getString("wifi_ssid", "") ?: "")) ?: (prefs.getString("wifi_ssid", "") ?: "")
+            val wifiPass = wifi?.optString("password", prefs.getString("wifi_pass", "") ?: "") ?: (prefs.getString("wifi_pass", "") ?: "")
+            val wifiStatus = wifi?.optString("status", prefs.getString("wifi_status", "MATCHED") ?: "MATCHED") ?: "MATCHED"
 
             prefs.edit().apply {
                 putString("hotel_name", hotelName)
-                putString("room_number", roomNum)
+                putString("hotel_tagline", tagline)
+                if (roomNum.isNotEmpty()) putString("room_number", roomNum)
                 putString("checkout_time", checkout)
                 putString("concierge_phone", phone)
                 putString("quiet_hours", quietHours)
@@ -517,11 +532,14 @@ class SmartStayDreamService : DreamService() {
             }.apply()
 
             tvHotelName?.text = hotelName
+            tvHotelTagline?.text = tagline
             tvGuestHotelMini?.text = hotelName.uppercase(Locale.getDefault())
-            tvBadgeRoomHotel?.text = "ROOM $roomNum"
-            tvBadgeRoomGuest?.text = roomNum
-            tvResRoomNum?.text = roomNum
-            tvCheckoutRoomDeparture?.text = "Room $roomNum • Departure"
+            if (roomNum.isNotEmpty()) {
+                tvBadgeRoomHotel?.text = "ROOM $roomNum"
+                tvBadgeRoomGuest?.text = roomNum
+                tvResRoomNum?.text = roomNum
+                tvCheckoutRoomDeparture?.text = "Room $roomNum • Departure"
+            }
             tvHotelHospitalityDesc?.text = "Welcome to $hotelName. Our property features state-of-the-art guest rooms and 24/7 dedicated reception."
             tvCheckoutSub?.text = "We hope you had a pleasant stay at $hotelName."
             tvHotelCheckoutLabel?.text = "✓ Standard Check-out: $checkout"
@@ -536,7 +554,7 @@ class SmartStayDreamService : DreamService() {
             val amenitiesArr = data.optJSONArray("amenities")
             if (amenitiesArr != null && amenitiesArr.length() > 0) {
                 val sb = StringBuilder()
-                for (i in 0 until minOf(amenitiesArr.length(), 4)) {
+                for (i in 0 until minOf(amenitiesArr.length(), 6)) {
                     val a = amenitiesArr.optJSONObject(i) ?: continue
                     val name = a.optString("name", "")
                     if (name.isNotEmpty()) sb.append("• ").append(name).append("\n")
@@ -546,6 +564,16 @@ class SmartStayDreamService : DreamService() {
                     tvHotelAmenitiesList?.text = text
                     tvGuestAmenitiesList?.text = text
                     prefs.edit().putString("amenities_cached", text).apply()
+                }
+            }
+
+            // Screensaver Appearance Config
+            val screensaver = data.optJSONObject("screensaver")
+            if (screensaver != null) {
+                val defSubtitle = screensaver.optString("defaultWelcomeSubtitle", "")
+                if (defSubtitle.isNotEmpty()) {
+                    tvHotelTagline?.text = defSubtitle
+                    prefs.edit().putString("hotel_tagline", defSubtitle).apply()
                 }
             }
 

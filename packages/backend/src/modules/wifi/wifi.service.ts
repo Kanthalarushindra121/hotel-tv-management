@@ -204,7 +204,7 @@ export class WifiService {
       return z;
     });
 
-    // Emit updates to affected rooms' TVs with decrypted password & matched status
+    // Emit updates to all hotel TVs with decrypted password & matched status
     const plainPassword = passwordChanged ? data.password : (existing.encryptedPassword && existing.passwordIv && existing.passwordTag ? decryptPassword(existing.encryptedPassword, existing.passwordIv, existing.passwordTag) : '');
     const wifiPayload = {
       zoneId,
@@ -216,21 +216,31 @@ export class WifiService {
       timestamp: new Date().toISOString(),
     };
 
-    for (const room of existing.rooms) {
-      if (room.device) {
-        emitToDevice(room.device.id, SOCKET_EVENTS.WIFI_UPDATED, wifiPayload);
-        emitToDevice(room.device.id, 'wifi.updated', wifiPayload);
-        emitToDevice(room.device.id, SOCKET_EVENTS.CONTENT_UPDATED, { wifi: wifiPayload });
+    try {
+      const { devicesService } = await import('../devices/devices.service');
+      const hotelDevices = await prisma.tvDevice.findMany({
+        where: { hotelId, deletedAt: null },
+        include: { room: true },
+      });
+      for (const dev of hotelDevices) {
+        const devPayload = await devicesService.getHotelTvPayload(hotelId, dev.roomId || undefined);
+        emitToDevice(dev.id, SOCKET_EVENTS.WIFI_UPDATED, devPayload.wifi);
+        emitToDevice(dev.id, 'wifi.updated', devPayload.wifi);
+        emitToDevice(dev.id, SOCKET_EVENTS.CONTENT_UPDATED, devPayload);
+        if (dev.deviceId && dev.deviceId !== dev.id) {
+          emitToDevice(dev.deviceId, SOCKET_EVENTS.WIFI_UPDATED, devPayload.wifi);
+          emitToDevice(dev.deviceId, 'wifi.updated', devPayload.wifi);
+          emitToDevice(dev.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, devPayload);
+        }
       }
+    } catch (broadcastErr) {
+      console.warn('[WiFiService] Device broadcast warning:', broadcastErr);
     }
 
-    // Also notify hotel dashboard
-    emitToHotel(hotelId, SOCKET_EVENTS.WIFI_UPDATED, {
-      zoneId,
-      name: updated.name,
-      ssid: updated.ssid,
-      status: 'MATCHED',
-    });
+    // Also notify hotel dashboard and hotel broadcast channel
+    emitToHotel(hotelId, SOCKET_EVENTS.WIFI_UPDATED, wifiPayload);
+    emitToHotel(hotelId, 'wifi.updated', wifiPayload);
+    emitToHotel(hotelId, SOCKET_EVENTS.CONTENT_UPDATED, { wifi: wifiPayload });
 
     return this.maskZone(updated);
   }

@@ -377,6 +377,15 @@ export class DevicesService {
       throw new AppError(`Invalid remote command: ${command}. Valid commands: ${validCommands.join(', ')}`, 400);
     }
 
+    // Attach fresh Wi-Fi credentials for REFRESH_WIFI command so TV can immediately regenerate QR code
+    if (command === 'REFRESH_WIFI') {
+      const tvPayload = await this.getHotelTvPayload(hotelId, device.roomId || undefined);
+      payload = {
+        ...(payload || {}),
+        wifi: tvPayload.wifi,
+      };
+    }
+
     // Try primary room (database UUID)
     let ackResult = await emitToDeviceWithAck(device.id, SOCKET_EVENTS.DEVICE_COMMAND, {
       command,
@@ -818,6 +827,11 @@ export class DevicesService {
       hotelId: hotel.id,
       name: hotel.name,
       description: hotel.description,
+      tagline: hotel.description || '',
+      phone: hotel.phone || '',
+      conciergePhone: hotel.phone || '',
+      checkoutTime: hotel.settings?.checkOutTime || '11:00 AM',
+      quietHours: `${hotel.settings?.quietHoursStart || '22:00'} – ${hotel.settings?.quietHoursEnd || '07:00'}`,
       logoUrl: hotel.logoUrl,
       coverImageUrl: hotel.coverImageUrl,
       primaryColor: hotel.primaryColor,
@@ -1031,38 +1045,50 @@ export class DevicesService {
     };
   }
 
-  // ─── Safe Delete TV Device (Revokes token, severs session, preserves audit) ───
+  // ─── Safe Delete TV Device (Revokes token, severs session, removes DB record & invalidates cache) ───
   async deleteDevice(hotelId: string, deviceId: string, userId?: string) {
     const device = await prisma.tvDevice.findFirst({
       where: {
         OR: [{ id: deviceId }, { deviceId }],
         hotelId,
-        deletedAt: null,
       },
       include: { room: true },
     });
     if (!device) throw new NotFoundError('TV device', deviceId);
 
+    // 1. Invalidate all Redis cached device data and pairing codes
+    try {
+      if (device.pairingCode) {
+        await redis.del(`${PAIRING_KEY_PREFIX}${device.pairingCode}`);
+      }
+      await redis.del(`tv:device:${device.id}`);
+      await redis.del(`tv:device:${device.deviceId}`);
+      await redis.del(`device:token:${device.id}`);
+      await redis.del(`device:token:${device.deviceId}`);
+      await redis.del(`device:online:${device.id}`);
+      await redis.del(`device:online:${device.deviceId}`);
+    } catch (redisErr) {
+      console.warn('Redis cleanup warning during deleteDevice:', redisErr);
+    }
+
+    // 2. Remove room link, heartbeats, and TV device from database completely
     await prisma.$transaction(async (tx) => {
-      // Disconnect room first to avoid foreign key / unique constraints
+      // Disconnect room first if assigned
       if (device.roomId) {
-        await tx.tvDevice.update({
-          where: { id: device.id },
-          data: { roomId: null },
+        await tx.room.update({
+          where: { id: device.roomId },
+          data: { updatedAt: new Date() },
         });
       }
 
-      await tx.tvDevice.update({
+      // Delete all heartbeats for this device
+      await tx.deviceHeartbeat.deleteMany({
+        where: { deviceId: device.id },
+      });
+
+      // Permanently delete the TV device record from the database
+      await tx.tvDevice.delete({
         where: { id: device.id },
-        data: {
-          deletedAt: new Date(),
-          roomId: null,
-          deviceToken: null,
-          isOnline: false,
-          status: 'OFFLINE',
-          screenState: 'UNPAIRED',
-          pairingCode: null,
-        },
       });
 
       try {
@@ -1087,22 +1113,29 @@ export class DevicesService {
       }
     });
 
-    // Disconnect and revoke token on TV
+    // 3. Disconnect and revoke token on TV display
     emitToDevice(device.id, 'DEVICE_REVOKED', {
+      action: 'DELETED',
       message: 'This TV registration has been removed by hotel administration.',
     });
     if (device.deviceId && device.deviceId !== device.id) {
       emitToDevice(device.deviceId, 'DEVICE_REVOKED', {
+        action: 'DELETED',
         message: 'This TV registration has been removed by hotel administration.',
       });
     }
+    emitToDevice(device.id, SOCKET_EVENTS.SCREEN_REFRESH, { action: 'DELETED' });
+    if (device.deviceId && device.deviceId !== device.id) {
+      emitToDevice(device.deviceId, SOCKET_EVENTS.SCREEN_REFRESH, { action: 'DELETED' });
+    }
 
-    // Notify dashboard
-    emitToHotel(hotelId, 'device.deleted', { deviceId: device.id });
+    // 4. Notify hotel dashboard in real time
+    emitToHotel(hotelId, 'device.deleted', { deviceId: device.id, hardwareId: device.deviceId });
+    emitToHotel(hotelId, SOCKET_EVENTS.DEVICE_OFFLINE, { deviceId: device.id, hardwareId: device.deviceId });
 
     return {
       success: true,
-      message: `TV device '${device.name || device.deviceId}' has been safely deleted and its session revoked.`,
+      message: `TV device '${device.name || device.deviceId}' has been permanently deleted from the database.`,
     };
   }
 

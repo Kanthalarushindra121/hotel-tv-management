@@ -140,18 +140,14 @@ export function setupSocketIO(io: Server) {
   io.on('connection', async (socket: Socket) => {
     logger.debug({ socketId: socket.id, type: socket.data.type }, 'Socket connected');
 
-    if (socket.data.type === 'device') {
+    if (socket.data.type === 'device' || socket.data.type === 'unpaired_device') {
       await handleDeviceConnect(io, socket);
-    } else if (socket.data.type === 'unpaired_device') {
-      const { deviceId } = socket.data;
-      socket.join(getDeviceRoom(deviceId));
-      logger.info({ deviceId }, 'Unpaired TV connected to socket and waiting for pairing event');
     } else {
       await handleUserConnect(io, socket);
     }
 
     socket.on('disconnect', async () => {
-      if (socket.data.type === 'device') {
+      if (socket.data.type === 'device' || socket.data.type === 'unpaired_device') {
         await handleDeviceDisconnect(io, socket);
       }
       logger.debug({ socketId: socket.id }, 'Socket disconnected');
@@ -193,12 +189,13 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
   // Mark device online if record exists
   if (dev) {
     try {
+      const liveStatus = dev.status === 'PAIRING' ? 'PAIRING' : (dev.status === 'UNPAIRED' ? 'UNPAIRED' : 'ONLINE');
       await prisma.tvDevice.update({
         where: { id: dev.id },
         data: {
           isOnline: true,
           lastSeenAt: new Date(),
-          status: 'ONLINE',
+          status: liveStatus,
         },
       });
 
@@ -221,7 +218,7 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
         roomId: dev.roomId,
         roomNumber: dev.room?.roomNumber,
         isOnline: true,
-        status: 'ONLINE',
+        status: dev.status === 'PAIRING' ? 'PAIRING' : 'ONLINE',
         timestamp: new Date().toISOString(),
       });
       io.to(getHotelRoom(effectiveHotelId)).emit('device.status.updated', {
@@ -230,7 +227,7 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
         roomId: dev.roomId,
         roomNumber: dev.room?.roomNumber,
         isOnline: true,
-        status: 'ONLINE',
+        status: dev.status === 'PAIRING' ? 'PAIRING' : 'ONLINE',
         timestamp: new Date().toISOString(),
       });
     }
@@ -268,6 +265,11 @@ async function handleDeviceConnect(io: Server, socket: Socket) {
         include: { room: true },
       });
       if (activeDev && activeDev.status === 'PAIRED' && activeDev.roomId && activeDev.hotelId) {
+        socket.join(getHotelRoom(activeDev.hotelId));
+        socket.data.hotelId = activeDev.hotelId;
+        socket.data.roomId = activeDev.roomId;
+        socket.data.type = 'device';
+
         const payload = await devicesService.getHotelTvPayload(
           activeDev.hotelId,
           activeDev.roomId,

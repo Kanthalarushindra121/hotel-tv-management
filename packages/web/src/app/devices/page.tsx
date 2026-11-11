@@ -86,11 +86,17 @@ export default function DevicesPage() {
 
       socket.on("device.heartbeat", refreshAll);
       socket.on("device.status.updated", refreshAll);
+      socket.on("device.online", refreshAll);
+      socket.on("device.offline", refreshAll);
       socket.on("DEVICE_ONLINE", refreshAll);
       socket.on("DEVICE_OFFLINE", refreshAll);
       socket.on("ROOM_STATUS_CHANGED", refreshAll);
+      socket.on("device.paired", refreshAll);
       socket.on("DEVICE_PAIRED", refreshAll);
+      socket.on("device.unpaired", refreshAll);
       socket.on("DEVICE_UNPAIRED", refreshAll);
+      socket.on("device.deleted", refreshAll);
+      socket.on("device.assignment.updated", refreshAll);
     } catch {
       // Socket fallback
     }
@@ -255,9 +261,14 @@ export default function DevicesPage() {
     mutationFn: async (deviceId: string) => {
       return await devicesApi.delete(deviceId);
     },
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
+      queryClient.setQueryData(["devices"], (old: any[] | undefined) => {
+        if (!old) return [];
+        return old.filter((d: any) => d.id !== deletedId && d.deviceId !== deletedId);
+      });
       queryClient.invalidateQueries({ queryKey: ["devices"] });
       queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      queryClient.invalidateQueries({ queryKey: ["system-diagnostics"] });
       toast.success("TV Device Permanently Deleted", {
         description: "The hardware registration has been removed and its session revoked.",
       });
@@ -323,10 +334,10 @@ export default function DevicesPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Smart TV Fleet & Hardware Diagnostics
+              Smart TV Fleet &amp; Room Displays
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Monitor connected hotel displays, real-time sync states, and physical room pairings.
+              Manage connected hotel displays, real-time sync states, and physical room pairings.
             </p>
           </div>
 
@@ -368,7 +379,7 @@ export default function DevicesPage() {
           </div>
         </div>
 
-        {/* ══════════════ SYSTEM & FLEET DIAGNOSTICS CARD ══════════════ */}
+        {/* ══════════════ SYSTEM & FLEET STATUS CARDS (HOTEL FACING) ══════════════ */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
@@ -376,14 +387,14 @@ export default function DevicesPage() {
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Backend Gateway
+                Cloud Sync Gateway
               </span>
-              <span className="text-xs font-bold text-slate-900 truncate block font-mono">
-                {diagnostics?.lanIp ? `http://${diagnostics.lanIp}:${diagnostics.port || 4000}` : "0.0.0.0:4000"}
+              <span className="text-xs font-bold text-slate-900 truncate block">
+                SmartStay Cloud Sync
               </span>
               <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Listening 0.0.0.0 (Port 4000)
+                Active &amp; Synchronized
               </span>
             </div>
           </div>
@@ -394,14 +405,14 @@ export default function DevicesPage() {
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Realtime Channel
+                Realtime Network
               </span>
-              <span className="text-xs font-bold text-slate-900 block font-mono">
-                WebSocket + ACK
+              <span className="text-xs font-bold text-slate-900 block">
+                Interactive TV Stream
               </span>
               <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                DB: {diagnostics?.database || "CONNECTED"} • Redis: {diagnostics?.redis || "CONNECTED"}
+                All Services Operational
               </span>
             </div>
           </div>
@@ -412,14 +423,14 @@ export default function DevicesPage() {
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Active TV Fleet
+                In-Room Displays
               </span>
               <div className="flex items-baseline gap-2">
                 <span className="text-base font-bold text-slate-900">{devices.length}</span>
                 <span className="text-[11px] text-slate-500">Connected Displays</span>
               </div>
               <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
-                Heartbeat window: 90s
+                Room Hospitality Fleet
               </span>
             </div>
           </div>
@@ -430,19 +441,19 @@ export default function DevicesPage() {
             </div>
             <div className="min-w-0">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Fleet Status
+                Display Fleet Status
               </span>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[11px] font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  {onlineCount} Online
+                  {onlineCount} Active
                 </span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[11px] font-bold">
-                  {offlineCount} Offline
+                  {offlineCount} Standby
                 </span>
               </div>
               <span className="text-[10px] text-slate-400 font-medium block mt-1">
-                Zero hardcoded IPs
+                Instant Push &amp; Remote Ready
               </span>
             </div>
           </div>
@@ -504,8 +515,8 @@ export default function DevicesPage() {
                     <th className="py-3.5 px-6">Assigned Room</th>
                     <th className="py-3.5 px-6">Connection Status</th>
                     <th className="py-3.5 px-6">App Version</th>
-                    <th className="py-3.5 px-6">IP & Last Heartbeat</th>
-                    <th className="py-3.5 px-6 text-right">Remote Controls & Actions</th>
+                    <th className="py-3.5 px-6">Connection &amp; Last Active</th>
+                    <th className="py-3.5 px-6 text-right">Remote Controls &amp; Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -574,10 +585,10 @@ export default function DevicesPage() {
 
                         <td className="py-3.5 px-6 space-y-0.5">
                           <div className="font-mono text-[11px] text-slate-600">
-                            {dev.ipAddress || "192.168.29.219"}
+                            {dev.ipAddress ? dev.ipAddress : "Connected (LAN/Wi-Fi)"}
                           </div>
                           <div className="text-[10px] text-slate-400 font-medium">
-                            {dev.lastSeenAt ? `Seen ${new Date(dev.lastSeenAt).toLocaleTimeString()}` : "Never"}
+                            {dev.lastSeenAt ? `Seen ${new Date(dev.lastSeenAt).toLocaleTimeString()}` : (isOnline ? "Active Now" : "Standby")}
                           </div>
                         </td>
 

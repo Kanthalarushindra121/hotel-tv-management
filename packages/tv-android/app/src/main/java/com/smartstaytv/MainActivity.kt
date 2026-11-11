@@ -113,6 +113,9 @@ class MainActivity : AppCompatActivity() {
     // State 3 Views
     private lateinit var tvCheckoutLuggagePhone: TextView
     private lateinit var btnCheckoutReturn: Button
+    private var tvCheckoutStep1: TextView? = null
+    private var tvCheckoutStep2: TextView? = null
+    private var tvCheckoutStep3: TextView? = null
 
     // Footers
     private lateinit var footerNormal: RelativeLayout
@@ -233,6 +236,9 @@ class MainActivity : AppCompatActivity() {
         // State 3 Views
         tvCheckoutLuggagePhone = findViewById(R.id.tv_checkout_luggage_phone)
         btnCheckoutReturn = findViewById(R.id.btn_checkout_return)
+        tvCheckoutStep1 = findViewById(R.id.tv_checkout_step_1)
+        tvCheckoutStep2 = findViewById(R.id.tv_checkout_step_2)
+        tvCheckoutStep3 = findViewById(R.id.tv_checkout_step_3)
 
         // Footers
         footerNormal = findViewById(R.id.footer_normal)
@@ -620,28 +626,45 @@ class MainActivity : AppCompatActivity() {
     private fun applyServerTvPayload(data: JSONObject) {
         try {
             val hotelName = if (data.has("name") && !data.isNull("name")) {
-                data.optString("name", "risky resto")
+                data.optString("name", prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
             } else {
-                data.optJSONObject("hotel")?.optString("name", "risky resto") ?: "risky resto"
+                data.optJSONObject("hotel")?.optString("name", prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
+                    ?: (prefs.getString("hotel_name", "Grand Palace Hyderabad") ?: "Grand Palace Hyderabad")
+            }
+            val tagline = if (data.has("tagline") && !data.isNull("tagline")) {
+                data.optString("tagline")
+            } else if (data.has("description") && !data.isNull("description")) {
+                data.optString("description")
+            } else {
+                data.optJSONObject("hotel")?.optString("description", prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
+                    ?: (prefs.getString("hotel_tagline", "Experience world-class luxury and hospitality.") ?: "Experience world-class luxury and hospitality.")
             }
             val roomObj = data.optJSONObject("room")
             val roomNum = roomObj?.optString("number", roomObj.optString("roomNumber", prefs.getString("room_number", "") ?: "")) ?: (prefs.getString("room_number", "") ?: "")
 
             val settings = data.optJSONObject("settings")
-            val checkout = settings?.optString("checkOutTime", "11:00 AM") ?: "11:00 AM"
-            val phone = settings?.optString("receptionPhone", "+91 85559 72884") ?: "+91 85559 72884"
+            val checkout = settings?.optString("checkOutTime", data.optString("checkoutTime", prefs.getString("checkout_time", "11:00 AM") ?: "11:00 AM")) ?: "11:00 AM"
+            val phone = if (data.has("phone") && !data.isNull("phone")) {
+                data.optString("phone")
+            } else if (data.has("conciergePhone") && !data.isNull("conciergePhone")) {
+                data.optString("conciergePhone")
+            } else {
+                settings?.optString("phone", settings.optString("receptionPhone", prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884"))
+                    ?: (prefs.getString("concierge_phone", "+91 85559 72884") ?: "+91 85559 72884")
+            }
             val qStart = settings?.optString("quietHoursStart", "22:00") ?: "22:00"
             val qEnd = settings?.optString("quietHoursEnd", "07:00") ?: "07:00"
             val quietHours = "$qStart – $qEnd"
 
             val wifi = data.optJSONObject("wifi")
-            val wifiSsid = wifi?.optString("networkName", wifi?.optString("ssid", "")) ?: ""
-            val wifiPass = wifi?.optString("password", "") ?: ""
-            val wifiStatus = wifi?.optString("status", "MATCHED") ?: "MATCHED"
+            val wifiSsid = wifi?.optString("networkName", wifi.optString("ssid", prefs.getString("wifi_ssid", "") ?: "")) ?: (prefs.getString("wifi_ssid", "") ?: "")
+            val wifiPass = wifi?.optString("password", prefs.getString("wifi_pass", "") ?: "") ?: (prefs.getString("wifi_pass", "") ?: "")
+            val wifiStatus = wifi?.optString("status", prefs.getString("wifi_status", "MATCHED") ?: "MATCHED") ?: "MATCHED"
 
             // Save to prefs
             prefs.edit().apply {
                 putString("hotel_name", hotelName)
+                putString("hotel_tagline", tagline)
                 if (roomNum.isNotEmpty()) putString("room_number", roomNum)
                 putString("checkout_time", checkout)
                 putString("concierge_phone", phone)
@@ -653,6 +676,7 @@ class MainActivity : AppCompatActivity() {
 
             // Update UI
             tvHotelName.text = hotelName
+            tvHotelTagline.text = tagline
             tvGuestHotelMini.text = hotelName.uppercase(Locale.getDefault())
             if (roomNum.isNotEmpty()) {
                 tvBadgeRoomHotel.text = "ROOM $roomNum"
@@ -673,7 +697,7 @@ class MainActivity : AppCompatActivity() {
             val amenitiesArr = data.optJSONArray("amenities")
             if (amenitiesArr != null && amenitiesArr.length() > 0) {
                 val sb = StringBuilder()
-                for (i in 0 until minOf(amenitiesArr.length(), 4)) {
+                for (i in 0 until minOf(amenitiesArr.length(), 6)) {
                     val a = amenitiesArr.optJSONObject(i) ?: continue
                     val name = a.optString("name", "")
                     if (name.isNotEmpty()) sb.append("• ").append(name).append("\n")
@@ -683,6 +707,27 @@ class MainActivity : AppCompatActivity() {
                     tvHotelAmenitiesList.text = text
                     tvGuestAmenitiesList.text = text
                     prefs.edit().putString("amenities_cached", text).apply()
+                }
+            }
+
+            // House Rules / Departure steps
+            val stepsArr = data.optJSONArray("checkoutSteps") ?: data.optJSONArray("houseRules")
+            if (stepsArr != null && stepsArr.length() > 0) {
+                val s1 = stepsArr.optString(0, "")
+                val s2 = if (stepsArr.length() > 1) stepsArr.optString(1, "") else ""
+                val s3 = if (stepsArr.length() > 2) stepsArr.optString(2, "") else ""
+                if (s1.isNotEmpty()) tvCheckoutStep1?.text = s1
+                if (s2.isNotEmpty()) tvCheckoutStep2?.text = s2
+                if (s3.isNotEmpty()) tvCheckoutStep3?.text = s3
+            }
+
+            // Screensaver Appearance Config
+            val screensaver = data.optJSONObject("screensaver")
+            if (screensaver != null) {
+                val defSubtitle = screensaver.optString("defaultWelcomeSubtitle", "")
+                if (defSubtitle.isNotEmpty()) {
+                    tvHotelTagline.text = defSubtitle
+                    prefs.edit().putString("hotel_tagline", defSubtitle).apply()
                 }
             }
 
@@ -851,8 +896,9 @@ class MainActivity : AppCompatActivity() {
             // WI-FI CREDENTIALS UPDATE
             fun onWifiUpdated(args: Array<Any>) {
                 if (args.isNotEmpty()) {
-                    val data = args[0] as? JSONObject
-                    if (data != null) {
+                    val raw = args[0] as? JSONObject
+                    if (raw != null) {
+                        val data = if (raw.has("wifi")) raw.optJSONObject("wifi") ?: raw else raw
                         val ssid = data.optString("networkName", data.optString("ssid", ""))
                         val pass = data.optString("password", "")
                         val status = data.optString("status", "MATCHED")
@@ -873,22 +919,15 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (args.isNotEmpty()) {
                     val data = args[0] as? JSONObject
-                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings"))) {
+                    if (data != null && (data.has("hotel") || data.has("name") || data.has("settings") || data.has("wifi") || data.has("amenities"))) {
                         runOnUiThread { applyServerTvPayload(data) }
-                    } else {
-                        val connectedSsid = getConnectedWifiSsid()
-                        socket?.emit("device.request_sync", JSONObject().apply {
-                            put("deviceId", hardwareId)
-                            if (connectedSsid != null) put("connectedSsid", connectedSsid)
-                        })
                     }
-                } else {
-                    val connectedSsid = getConnectedWifiSsid()
-                    socket?.emit("device.request_sync", JSONObject().apply {
-                        put("deviceId", hardwareId)
-                        if (connectedSsid != null) put("connectedSsid", connectedSsid)
-                    })
                 }
+                val connectedSsid = getConnectedWifiSsid()
+                socket?.emit("device.request_sync", JSONObject().apply {
+                    put("deviceId", hardwareId)
+                    if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                })
             }
             socket?.on("screen.refresh") { onRefresh(it) }
             socket?.on("content.updated") { onRefresh(it) }
@@ -936,8 +975,21 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             "REFRESH_WIFI" -> {
+                                val wifiObj = payload?.optJSONObject("wifi")
+                                if (wifiObj != null) {
+                                    val ssid = wifiObj.optString("networkName", wifiObj.optString("ssid", ""))
+                                    val pass = wifiObj.optString("password", "")
+                                    val status = wifiObj.optString("status", "MATCHED")
+                                    prefs.edit().putString("wifi_ssid", ssid).putString("wifi_pass", pass).putString("wifi_status", status).apply()
+                                    renderWifiDetails(ssid, pass, status)
+                                }
                                 reportConnectedSsidToBackend()
-                                Toast.makeText(this@MainActivity, "Wi-Fi refreshed", Toast.LENGTH_SHORT).show()
+                                val connectedSsid = getConnectedWifiSsid()
+                                socket?.emit("device.request_sync", JSONObject().apply {
+                                    put("deviceId", hardwareId)
+                                    if (connectedSsid != null) put("connectedSsid", connectedSsid)
+                                })
+                                Toast.makeText(this@MainActivity, "Wi-Fi credentials & QR code refreshed", Toast.LENGTH_SHORT).show()
                             }
                             "CHECKOUT_REMINDER", "CHECKOUT_NOTIFY" -> {
                                 showStateCheckout()

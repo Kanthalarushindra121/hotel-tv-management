@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { prisma } from '../../config/database';
 import { env } from '../../config/env';
 import { AppError, NotFoundError } from '../../core/errors';
-import { emitToHotel, SOCKET_EVENTS } from '../../core/realtime/socket';
+import { emitToHotel, emitToDevice, SOCKET_EVENTS } from '../../core/realtime/socket';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ export class HotelsService {
       data: updated,
       timestamp: new Date().toISOString(),
     });
-    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return updated;
   }
@@ -141,7 +141,7 @@ export class HotelsService {
       data: updated,
       timestamp: new Date().toISOString(),
     });
-    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return updated;
   }
@@ -218,6 +218,7 @@ export class HotelsService {
     emitToHotel(hotelId, SOCKET_EVENTS.WIFI_UPDATED, wifiBroadcastPayload);
     emitToHotel(hotelId, 'wifi.updated', wifiBroadcastPayload);
     emitToHotel(hotelId, SOCKET_EVENTS.CONTENT_UPDATED, { wifi: wifiBroadcastPayload });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return wifi;
   }
@@ -253,7 +254,7 @@ export class HotelsService {
       data: created,
       timestamp: new Date().toISOString(),
     });
-    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return created;
   }
@@ -286,7 +287,7 @@ export class HotelsService {
       data: created,
       timestamp: new Date().toISOString(),
     });
-    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return created;
   }
@@ -319,6 +320,7 @@ export class HotelsService {
       data: created,
       timestamp: new Date().toISOString(),
     });
+    await this.broadcastHotelTvPayload(hotelId);
 
     return created;
   }
@@ -530,7 +532,7 @@ export class HotelsService {
     });
 
     emitToHotel(hotelId, 'hotel.screensaver.updated', config);
-    emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, { hotelId });
+    await this.broadcastHotelTvPayload(hotelId);
 
     try {
       await prisma.auditLog.create({
@@ -549,6 +551,37 @@ export class HotelsService {
     }
 
     return config;
+  }
+
+  // ─── Broadcast authoritative TV payload to all TVs & hotel rooms ───
+  private async broadcastHotelTvPayload(hotelId: string) {
+    try {
+      const { devicesService } = await import('../devices/devices.service');
+      const tvPayload = await devicesService.getHotelTvPayload(hotelId);
+      emitToHotel(hotelId, SOCKET_EVENTS.CONTENT_UPDATED, tvPayload);
+      emitToHotel(hotelId, 'content.updated', tvPayload);
+      emitToHotel(hotelId, SOCKET_EVENTS.SCREEN_REFRESH, tvPayload);
+      emitToHotel(hotelId, 'screen.refresh', tvPayload);
+
+      // Directly push to all connected hotel TV devices
+      const hotelDevices = await prisma.tvDevice.findMany({
+        where: { hotelId, deletedAt: null },
+        include: { room: true },
+      });
+      for (const dev of hotelDevices) {
+        const devPayload = dev.roomId ? await devicesService.getHotelTvPayload(hotelId, dev.roomId) : tvPayload;
+        emitToDevice(dev.id, SOCKET_EVENTS.CONTENT_UPDATED, devPayload);
+        emitToDevice(dev.id, 'content.updated', devPayload);
+        emitToDevice(dev.id, SOCKET_EVENTS.SCREEN_REFRESH, devPayload);
+        if (dev.deviceId && dev.deviceId !== dev.id) {
+          emitToDevice(dev.deviceId, SOCKET_EVENTS.CONTENT_UPDATED, devPayload);
+          emitToDevice(dev.deviceId, 'content.updated', devPayload);
+          emitToDevice(dev.deviceId, SOCKET_EVENTS.SCREEN_REFRESH, devPayload);
+        }
+      }
+    } catch (err) {
+      console.warn('[HotelsService] broadcastHotelTvPayload error:', err);
+    }
   }
 }
 
