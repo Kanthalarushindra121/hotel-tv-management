@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "SmartStay TV — Hotel Management Platform",
@@ -23,6 +24,7 @@ export default function RootLayout({
             <Toaster position="top-right" richColors />
           </AuthProvider>
         </QueryProvider>
+        <Analytics />
       </body>
     </html>
   );
